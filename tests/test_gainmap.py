@@ -14,7 +14,7 @@ def test_validate_gain_map_casts_to_uint8() -> None:
     validated = validate_gain_map(gain, (4, 4, 3))
 
     assert validated.dtype == np.uint8
-    assert validated.max() == 255
+    assert validated.max() == np.iinfo(np.uint8).max
 
 
 def test_validate_gain_map_rejects_mismatched_shape() -> None:

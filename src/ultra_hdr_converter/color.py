@@ -8,6 +8,10 @@ import imagecodecs
 import numpy as np
 from numpy.typing import DTypeLike
 
+GRAYSCALE_NDIM = 2
+COLOR_NDIM = 3
+SINGLE_CHANNEL = 1
+
 
 def _ensure_cms_available() -> None:
     if not hasattr(imagecodecs, "cms_profile") or not hasattr(imagecodecs, "cms_transform"):
@@ -21,7 +25,11 @@ def _transform_profiles(
     outdtype: DTypeLike,
 ) -> np.ndarray:
     """Run CMS transform between two profiles and normalize dtype behavior across API versions."""
-    color_space = "gray" if sdr_array.ndim == 2 or (sdr_array.ndim == 3 and sdr_array.shape[2] == 1) else "rgb"
+    color_space = (
+        "gray"
+        if sdr_array.ndim == GRAYSCALE_NDIM or (sdr_array.ndim == COLOR_NDIM and sdr_array.shape[2] == SINGLE_CHANNEL)
+        else "rgb"
+    )
 
     attempts: list[dict[str, Any]] = [
         {"colorspace": color_space, "outcolorspace": color_space, "outdtype": outdtype},

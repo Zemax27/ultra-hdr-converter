@@ -20,10 +20,11 @@
 ### Code Style and Formatting
 - Follow PEP 8 for Python code style.
 - Always use **ruff** for linting and formatting Python code. Follow configuration rules:
-    - Target Python version: 3.12
-    - Line length: 120
-    - Enabled rules: E, F, I, B, UP, SIM
-- Use `mypy` strict mode for static typing checks.
+  - Target Python version: 3.12
+  - Line length: 120
+  - Docstrings: Google convention (pydocstyle)
+  - Enabled rule families: E, F, PL, I, N, A
+  - Ignored rules: E501, PLR0913
 
 ### Workflow Expectations
 

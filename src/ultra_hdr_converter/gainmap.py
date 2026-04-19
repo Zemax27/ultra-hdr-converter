@@ -10,6 +10,12 @@ from numpy.typing import NDArray
 FloatArray = NDArray[np.float32]
 UInt8Array = NDArray[np.uint8]
 
+GRAYSCALE_NDIM = 2
+COLOR_NDIM = 3
+SINGLE_CHANNEL = 1
+PERCENT_MAX = 100.0
+NORMALIZATION_EPSILON = 1e-8
+
 
 @dataclass(frozen=True)
 class RadianceMapConfig:
@@ -26,13 +32,13 @@ def validate_gain_map(gain_map: np.ndarray, sdr_shape: tuple[int, ...]) -> UInt8
     """Validate and normalize gain map to uint8 with expected dimensions."""
     gain = np.asarray(gain_map)
 
-    if gain.ndim not in (2, 3):
+    if gain.ndim not in (GRAYSCALE_NDIM, COLOR_NDIM):
         raise ValueError("Gain map must be 2D or 3D array.")
 
     if gain.shape[0] != sdr_shape[0] or gain.shape[1] != sdr_shape[1]:
         raise ValueError("Gain map height and width must match SDR base image.")
 
-    if gain.ndim == 3 and gain.shape[2] not in (1, 3):
+    if gain.ndim == COLOR_NDIM and gain.shape[2] not in (SINGLE_CHANNEL, COLOR_NDIM):
         raise ValueError("Gain map channels must be 1 or 3 when using a 3D array.")
 
     if gain.dtype != np.uint8:
@@ -48,9 +54,9 @@ def generate_log2_gain_map(linear_sdr: np.ndarray, max_stops: float = 6.0) -> UI
     This is a deterministic baseline map for experimentation, not a full HDR tone mapping model.
     """
     linear = np.asarray(linear_sdr, dtype=np.float32)
-    if linear.ndim == 3 and linear.shape[2] >= 3:
+    if linear.ndim == COLOR_NDIM and linear.shape[2] >= COLOR_NDIM:
         luminance = linear[..., 0] * 0.2126 + linear[..., 1] * 0.7152 + linear[..., 2] * 0.0722
-    elif linear.ndim == 2:
+    elif linear.ndim == GRAYSCALE_NDIM:
         luminance = linear
     else:
         raise ValueError("Linear SDR array must be shape (H, W) or (H, W, C>=3).")
@@ -66,7 +72,7 @@ def generate_log2_gain_map(linear_sdr: np.ndarray, max_stops: float = 6.0) -> UI
 
 def _resize_bilinear(image: np.ndarray, height: int, width: int) -> FloatArray:
     """Resize a single-channel image using bilinear interpolation."""
-    if image.ndim != 2:
+    if image.ndim != GRAYSCALE_NDIM:
         raise ValueError("Bilinear resize expects a 2D array.")
 
     src_h, src_w = image.shape
@@ -125,7 +131,7 @@ def _guided_filter_grayscale(
     """Run a grayscale guided filter approximation in pure NumPy."""
     if guide.shape != src.shape:
         raise ValueError("Guide and source arrays must share the same shape.")
-    if guide.ndim != 2:
+    if guide.ndim != GRAYSCALE_NDIM:
         raise ValueError("Guided filter expects single-channel 2D arrays.")
 
     guide = guide.astype(np.float32, copy=False)
@@ -157,7 +163,7 @@ def _robust_normalize(image: np.ndarray, low: float, high: float) -> UInt8Array:
 
     low_value = float(np.percentile(flat, low))
     high_value = float(np.percentile(flat, high))
-    if high_value - low_value < 1e-8:
+    if high_value - low_value < NORMALIZATION_EPSILON:
         return np.zeros_like(image, dtype=np.uint8)
 
     clipped = np.clip(log_image, low_value, high_value)
@@ -188,13 +194,13 @@ def generate_radiance_gain_map(
         raise ValueError("Radiance guided_radius must be >= 1.")
     if cfg.guided_eps <= 0.0:
         raise ValueError("Radiance guided_eps must be > 0.")
-    if not 0.0 <= cfg.clip_percentile_low < cfg.clip_percentile_high <= 100.0:
+    if not 0.0 <= cfg.clip_percentile_low < cfg.clip_percentile_high <= PERCENT_MAX:
         raise ValueError("Radiance clip percentiles must satisfy 0 <= low < high <= 100.")
 
     linear = np.asarray(linear_sdr, dtype=np.float32)
-    if linear.ndim == 3 and linear.shape[2] >= 3:
+    if linear.ndim == COLOR_NDIM and linear.shape[2] >= COLOR_NDIM:
         luminance = linear[..., 0] * 0.2126 + linear[..., 1] * 0.7152 + linear[..., 2] * 0.0722
-    elif linear.ndim == 2:
+    elif linear.ndim == GRAYSCALE_NDIM:
         luminance = linear
     else:
         raise ValueError("Linear SDR array must be shape (H, W) or (H, W, C>=3).")

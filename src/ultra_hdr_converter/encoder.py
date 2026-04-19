@@ -7,6 +7,9 @@ from typing import Any, cast
 import imagecodecs
 import numpy as np
 
+GRAYSCALE_NDIM = 2
+COLOR_NDIM = 3
+
 
 def _ensure_ultrahdr_available() -> None:
     if not hasattr(imagecodecs, "ultrahdr_encode"):
@@ -52,15 +55,15 @@ def _encode_with_gain_map_api(
 def _compose_rgba_half_from_linear(linear_sdr: np.ndarray, gain_map: np.ndarray) -> np.ndarray:
     """Build RGBA float16 HDR data from linear SDR and gain map for newer Ultra HDR API."""
     linear = np.asarray(linear_sdr, dtype=np.float32)
-    if linear.ndim == 2:
-        linear = np.repeat(linear[..., None], 3, axis=2)
-    elif linear.ndim == 3 and linear.shape[2] >= 3:
-        linear = linear[..., :3]
+    if linear.ndim == GRAYSCALE_NDIM:
+        linear = np.repeat(linear[..., None], COLOR_NDIM, axis=2)
+    elif linear.ndim == COLOR_NDIM and linear.shape[2] >= COLOR_NDIM:
+        linear = linear[..., :COLOR_NDIM]
     else:
         raise ValueError("linear_sdr must be shape (H, W) or (H, W, C>=3).")
 
     gain = np.asarray(gain_map, dtype=np.float32)
-    if gain.ndim == 3:
+    if gain.ndim == COLOR_NDIM:
         gain = gain.mean(axis=2)
 
     if gain.shape != linear.shape[:2]:
