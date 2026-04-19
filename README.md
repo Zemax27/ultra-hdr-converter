@@ -4,7 +4,6 @@ Python toolkit and CLI to package Ultra HDR JPEG files from:
 
 - an SDR base JPEG
 - an external gain map (or an automatically generated one)
-- optional ICC metadata passthrough
 
 Dependency and build management use `uv`.
 
@@ -13,7 +12,7 @@ Dependency and build management use `uv`.
 The codebase follows a two-phase workflow:
 
 - **Phase A** -- Decode and linearize the SDR JPEG through its embedded ICC profile using `imagecodecs.cms_*`.
-- **Phase B** -- Generate a gain map (at half resolution for speed) and encode a standards-aligned Ultra HDR JPEG via API-4 composition (MPF container with XMP and ISO 21496-1 metadata).
+- **Phase B** -- Generate a highlight-targeted gain map (at half resolution for speed) and compose a standards-aligned Ultra HDR JPEG via API-4 (MPF container with XMP and ISO 21496-1 metadata).
 
 Detailed design is in [docs/architecture.md](docs/architecture.md).
 
@@ -24,7 +23,6 @@ Detailed design is in [docs/architecture.md](docs/architecture.md).
 |- .github/workflows/ci.yml
 |- docs/architecture.md
 |- examples/convert_with_custom_gainmap.py
-|- src/gainmap_generator.py
 |- src/ultra_hdr_converter/
 |  |- __init__.py
 |  |- cli.py
@@ -47,8 +45,49 @@ Detailed design is in [docs/architecture.md](docs/architecture.md).
 ```powershell
 uv sync --group dev
 uv run uhdr-convert input.jpg output_ultrahdr.jpg --gain-map gain_map.png
-uv run uhdr-convert input.jpg output_ultrahdr.jpg --generated-gain-map radiance
+uv run uhdr-convert input.jpg output_ultrahdr.jpg
 ```
+
+## Programmatic Usage
+
+```python
+from ultra_hdr_converter import convert_jpeg_to_ultrahdr, GainMapConfig
+
+# Auto-generate gain map with custom settings.
+result = convert_jpeg_to_ultrahdr(
+    input_jpeg="input.jpg",
+    output_jpeg="output_ultrahdr.jpg",
+    gain_map_config=GainMapConfig(highlight_threshold=0.4, max_boost_factor=6.0),
+)
+
+# Or use an external gain map.
+result = convert_jpeg_to_ultrahdr(
+    input_jpeg="input.jpg",
+    output_jpeg="output_ultrahdr.jpg",
+    gain_map_path="gain_map.png",
+)
+```
+
+## Gain Map Algorithm
+
+The built-in generator uses a highlight-targeted inverse tone mapping approach:
+
+1. **Soft Highlight Isolation** -- A smoothstep function creates a soft mask that isolates compressed highlights (skies, light sources, reflections) while leaving midtones and shadows untouched.
+2. **Non-Linear Highlight Expansion** -- An exponential curve stretches the masked highlights to synthesize an HDR luminance signal.
+3. **Logarithmic Gain Calculation** -- The gain map is computed as the log2 ratio between the synthetic HDR and original SDR luminance.
+4. **Edge-Aware Refinement** -- A guided filter smooths the gain map using the SDR luminance as guide, ensuring HDR boost respects structural edges and avoids halos.
+5. **Aesthetic Bloom** -- A subtle Gaussian blur is blended into the gain map peaks to simulate natural light halation.
+
+### CLI Parameters
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--highlight-threshold` | `0.5` | Linear luminance value where HDR boost begins |
+| `--expansion-gamma` | `2.2` | Exponent for non-linear highlight stretch |
+| `--max-boost-factor` | `4.0` | Maximum HDR multiplier for brightest pixels |
+| `--guided-radius` | `20` | Guided filter radius for edge-aware smoothing |
+| `--guided-eps` | `0.001` | Guided filter epsilon |
+| `--bloom-weight` | `0.15` | Weight of bloom effect (0 to disable) |
 
 ## Commands
 
@@ -68,13 +107,11 @@ uv build
 
 ## Performance
 
-- **Half-resolution gain map**: The pipeline downsamples the SDR image to half resolution before computing luminance and generating the gain map. This reduces pixel count by 4x through the CMS transform and gain map algorithms, while the Ultra HDR encoder accepts gain maps of any size.
-- **In-place NumPy operations**: Gain map generation (`log2`, `radiance`) and normalization use in-place array operations (`np.maximum(..., out=...)`, `np.log(..., out=...)`, `*=`, `/=`) to minimize memory allocations.
-- **Integral-image box filter**: The guided filter uses a padded integral image for O(1)-per-pixel window means, with the mean computed directly to avoid separate division passes.
-- **OpenCV acceleration**: When `cv2` and `cv2.ximgproc` are available, the pipeline uses them for bilinear resize and guided filtering. Only `numpy` + `imagecodecs` are required as core dependencies.
+- **Half-resolution gain map**: The pipeline downsamples the SDR image to half resolution before computing luminance and generating the gain map, reducing pixel count by 4x.
+- **In-place NumPy operations**: Gain map generation uses in-place array operations to minimize memory allocations.
+- **Integral-image box filter**: The guided filter uses a padded integral image for O(1)-per-pixel window means.
+- **OpenCV acceleration**: When `cv2` and `cv2.ximgproc` are available, the pipeline uses them for guided filtering and Gaussian blur. Only `numpy` + `imagecodecs` are required as core dependencies.
 
 ## Notes
 
 - Use the full `imagecodecs` build with both `cms` and `ultrahdr` extensions enabled.
-- For math on linearized data, keep `float32` output (`--linear-dtype float32` in CLI).
-- When `--gain-map` is not provided, the default generator is `radiance`.

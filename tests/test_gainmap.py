@@ -2,9 +2,8 @@ import numpy as np
 import pytest
 
 from ultra_hdr_converter.gainmap import (
-    RadianceMapConfig,
-    generate_log2_gain_map,
-    generate_radiance_gain_map,
+    GainMapConfig,
+    generate_gain_map,
     validate_gain_map,
 )
 
@@ -24,27 +23,28 @@ def test_validate_gain_map_rejects_invalid_ndim() -> None:
         validate_gain_map(gain)
 
 
-def test_generate_log2_gain_map_returns_expected_shape_dtype() -> None:
-    luminance = np.ones((8, 8), dtype=np.float32)
-    gain = generate_log2_gain_map(luminance)
+def test_generate_gain_map_returns_expected_shape_dtype() -> None:
+    luminance = np.linspace(0.0, 1.0, 120, dtype=np.float32).reshape(12, 10)
+    config = GainMapConfig(guided_radius=2, guided_eps=0.05)
 
-    assert gain.shape == (8, 8)
-    assert gain.dtype == np.uint8
-
-
-def test_generate_radiance_gain_map_returns_expected_shape_dtype() -> None:
-    luminance = np.ones((12, 10), dtype=np.float32)
-    config = RadianceMapConfig(resize_factor=0.5, guided_radius=2, guided_eps=0.05)
-
-    gain = generate_radiance_gain_map(luminance, config=config)
+    gain = generate_gain_map(luminance, config=config)
 
     assert gain.shape == (12, 10)
     assert gain.dtype == np.uint8
 
 
-def test_generate_radiance_gain_map_rejects_invalid_config() -> None:
+def test_generate_gain_map_nonzero_for_highlights() -> None:
+    luminance = np.full((8, 8), 0.8, dtype=np.float32)
+    config = GainMapConfig(highlight_threshold=0.5, guided_radius=1)
+
+    gain = generate_gain_map(luminance, config=config)
+
+    assert gain.max() > 0, "Gain map should have nonzero values for above-threshold luminance"
+
+
+def test_generate_gain_map_rejects_invalid_config() -> None:
     luminance = np.ones((8, 8), dtype=np.float32)
-    invalid = RadianceMapConfig(resize_factor=0.0)
+    invalid = GainMapConfig(highlight_threshold=0.0)
 
     with pytest.raises(ValueError):
-        generate_radiance_gain_map(luminance, config=invalid)
+        generate_gain_map(luminance, config=invalid)

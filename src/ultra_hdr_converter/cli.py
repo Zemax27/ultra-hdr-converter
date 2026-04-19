@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
-import numpy as np
-
-from .gainmap import RadianceMapConfig
+from .gainmap import GainMapConfig
 from .pipeline import convert_jpeg_to_ultrahdr
 
 
@@ -22,90 +21,80 @@ def _parse_args() -> argparse.Namespace:
         "--gain-map",
         type=Path,
         default=None,
-        help="Optional gain map path (.npy or image). If omitted, a baseline map is generated.",
+        help="Optional gain map path (.npy or image). If omitted, a gain map is generated automatically.",
     )
     parser.add_argument(
-        "--generated-gain-map",
-        choices=("log2", "radiance"),
-        default="radiance",
-        help="Algorithm used when --gain-map is omitted.",
-    )
-    parser.add_argument(
-        "--radiance-resize-factor",
+        "--highlight-threshold",
         type=float,
         default=0.5,
-        help="Downscale factor for radiance generation in the range (0, 1].",
+        help="Linear luminance value where HDR boost begins (0.0-1.0).",
     )
     parser.add_argument(
-        "--radiance-guided-radius",
+        "--expansion-gamma",
+        type=float,
+        default=2.2,
+        help="Exponent for non-linear highlight stretch.",
+    )
+    parser.add_argument(
+        "--max-boost-factor",
+        type=float,
+        default=4.0,
+        help="Maximum HDR multiplier for the brightest pixels.",
+    )
+    parser.add_argument(
+        "--guided-radius",
         type=int,
-        default=100,
-        help="Guided filter radius for radiance generation.",
+        default=20,
+        help="Guided filter radius for edge-aware smoothing.",
     )
     parser.add_argument(
-        "--radiance-guided-eps",
+        "--guided-eps",
         type=float,
         default=1e-3,
-        help="Guided filter epsilon for radiance generation.",
+        help="Guided filter epsilon.",
     )
     parser.add_argument(
-        "--radiance-clip-low",
+        "--bloom-weight",
         type=float,
-        default=50.0,
-        help="Low percentile for radiance normalization.",
-    )
-    parser.add_argument(
-        "--radiance-clip-high",
-        type=float,
-        default=99.5,
-        help="High percentile for radiance normalization.",
-    )
-    parser.add_argument(
-        "--linear-dtype",
-        choices=("float32", "float64"),
-        default="float32",
-        help="Output dtype for ICC linearization stage.",
-    )
-    parser.add_argument(
-        "--save-linear-npy",
-        type=Path,
-        default=None,
-        help="Optional path to save linearized SDR array as .npy.",
-    )
-    parser.add_argument(
-        "--no-embed-icc",
-        action="store_true",
-        help="Do not embed original ICC profile in Ultra HDR metadata.",
+        default=0.15,
+        help="Weight of aesthetic bloom effect (0 to disable).",
     )
     return parser.parse_args()
 
 
+def _validate_inputs(args: argparse.Namespace) -> None:
+    """Validate that input files exist before starting conversion."""
+    if not args.input_jpeg.is_file():
+        print(f"Error: input file not found: {args.input_jpeg}", file=sys.stderr)
+        sys.exit(1)
+    if args.gain_map is not None and not args.gain_map.is_file():
+        print(f"Error: gain map file not found: {args.gain_map}", file=sys.stderr)
+        sys.exit(1)
+
+
 def main() -> None:
     args = _parse_args()
-    linear_dtype = np.float32 if args.linear_dtype == "float32" else np.float64
-    radiance_config = RadianceMapConfig(
-        resize_factor=args.radiance_resize_factor,
-        guided_radius=args.radiance_guided_radius,
-        guided_eps=args.radiance_guided_eps,
-        clip_percentile_low=args.radiance_clip_low,
-        clip_percentile_high=args.radiance_clip_high,
+    _validate_inputs(args)
+
+    gain_map_config = GainMapConfig(
+        highlight_threshold=args.highlight_threshold,
+        expansion_gamma=args.expansion_gamma,
+        max_boost_factor=args.max_boost_factor,
+        guided_radius=args.guided_radius,
+        guided_eps=args.guided_eps,
+        bloom_weight=args.bloom_weight,
     )
 
     result = convert_jpeg_to_ultrahdr(
         input_jpeg=args.input_jpeg,
         output_jpeg=args.output_jpeg,
         gain_map_path=args.gain_map,
-        generated_gain_map_method=args.generated_gain_map,
-        radiance_config=radiance_config,
-        linear_outdtype=linear_dtype,
-        embed_icc_profile=not args.no_embed_icc,
-        save_linear_npy=args.save_linear_npy,
+        gain_map_config=gain_map_config,
     )
 
     print(f"Wrote Ultra HDR JPEG: {result.output_path}")
     print(f"Gain map source: {result.gain_map_source}")
-    print(f"Linear dtype: {result.linear_dtype}")
-    print(f"Embedded ICC: {result.embedded_icc}")
+    print(f"ICC profile found: {result.has_icc}")
 
 
 if __name__ == "__main__":

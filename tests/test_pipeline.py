@@ -19,10 +19,6 @@ def test_pipeline_uses_external_gain_map(monkeypatch: object, tmp_path: Path) ->
     monkeypatch.setattr("ultra_hdr_converter.pipeline.decode_jpeg", lambda _: fake_sdr)
     monkeypatch.setattr("ultra_hdr_converter.pipeline.extract_icc_profile", lambda _: b"icc")
     monkeypatch.setattr(
-        "ultra_hdr_converter.pipeline.linearize_from_icc",
-        lambda *_args, **_kwargs: np.ones((4, 4, 3), dtype=np.float32),
-    )
-    monkeypatch.setattr(
         "ultra_hdr_converter.pipeline.encode_ultrahdr",
         lambda **_kwargs: b"ultrahdr",
     )
@@ -41,10 +37,11 @@ def test_pipeline_uses_external_gain_map(monkeypatch: object, tmp_path: Path) ->
     )
 
     assert result.gain_map_source == "external"
+    assert result.has_icc is True
     assert written[str(output_file)] == b"ultrahdr"
 
 
-def test_pipeline_uses_radiance_generated_gain_map(monkeypatch: object, tmp_path: Path) -> None:
+def test_pipeline_uses_generated_gain_map(monkeypatch: object, tmp_path: Path) -> None:
     input_file = tmp_path / "input.jpg"
     output_file = tmp_path / "output.jpg"
 
@@ -53,17 +50,13 @@ def test_pipeline_uses_radiance_generated_gain_map(monkeypatch: object, tmp_path
 
     monkeypatch.setattr("ultra_hdr_converter.pipeline.read_bytes", lambda _: b"jpeg")
     monkeypatch.setattr("ultra_hdr_converter.pipeline.decode_jpeg", lambda _: fake_sdr)
-    monkeypatch.setattr("ultra_hdr_converter.pipeline.extract_icc_profile", lambda _: b"icc")
-    monkeypatch.setattr(
-        "ultra_hdr_converter.pipeline.linearize_from_icc",
-        lambda *_args, **_kwargs: np.ones((4, 4, 3), dtype=np.float32),
-    )
+    monkeypatch.setattr("ultra_hdr_converter.pipeline.extract_icc_profile", lambda _: None)
     monkeypatch.setattr(
         "ultra_hdr_converter.pipeline.extract_xyz_luminance",
         lambda *_args, **_kwargs: np.ones((2, 2), dtype=np.float32),
     )
     monkeypatch.setattr(
-        "ultra_hdr_converter.pipeline.generate_radiance_gain_map",
+        "ultra_hdr_converter.pipeline.generate_gain_map",
         lambda *_args, **_kwargs: fake_gain,
     )
     monkeypatch.setattr(
@@ -81,8 +74,8 @@ def test_pipeline_uses_radiance_generated_gain_map(monkeypatch: object, tmp_path
     result = convert_jpeg_to_ultrahdr(
         input_jpeg=input_file,
         output_jpeg=output_file,
-        generated_gain_map_method="radiance",
     )
 
-    assert result.gain_map_source == "generated-radiance"
+    assert result.gain_map_source == "generated"
+    assert result.has_icc is False
     assert written[str(output_file)] == b"ultrahdr"
