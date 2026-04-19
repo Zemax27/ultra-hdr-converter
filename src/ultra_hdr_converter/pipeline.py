@@ -45,9 +45,8 @@ def convert_jpeg_to_ultrahdr(
     sdr_base = decode_jpeg(input_bytes)
     icc_profile = extract_icc_profile(input_bytes)
 
-    linear_sdr = linearize_from_icc(sdr_base, icc_profile, outdtype=linear_outdtype)
-
     if save_linear_npy is not None:
+        linear_sdr = linearize_from_icc(sdr_base, icc_profile, outdtype=linear_outdtype)
         linear_path = Path(save_linear_npy)
         linear_path.parent.mkdir(parents=True, exist_ok=True)
         np.save(linear_path, linear_sdr)
@@ -56,11 +55,13 @@ def convert_jpeg_to_ultrahdr(
         raise ValueError("generated_gain_map_method must be 'log2' or 'radiance'.")
 
     if gain_map_path is not None:
-        gain_map = validate_gain_map(load_gain_map(gain_map_path), sdr_base.shape)
+        gain_map = validate_gain_map(load_gain_map(gain_map_path))
         gain_map_source = "external"
     else:
-        # Compute CIE Y luminance via XYZ conversion for gain map generation.
-        luminance = extract_xyz_luminance(sdr_base, icc_profile)
+        # Downsample to half resolution for faster luminance and gain map computation.
+        # The encoder accepts gain maps of any size relative to the SDR JPEG.
+        sdr_half = sdr_base[::2, ::2]
+        luminance = extract_xyz_luminance(sdr_half, icc_profile)
 
         if generated_gain_map_method == "radiance":
             gain_map = generate_radiance_gain_map(luminance, config=radiance_config)
@@ -69,7 +70,7 @@ def convert_jpeg_to_ultrahdr(
             gain_map = generate_log2_gain_map(luminance)
             gain_map_source = "generated-log2"
 
-        gain_map = validate_gain_map(gain_map, sdr_base.shape)
+        gain_map = validate_gain_map(gain_map)
 
     # API-4 composition: the original SDR JPEG is preserved byte-for-byte,
     # keeping its encoding quality and ICC profile intact.
@@ -83,5 +84,5 @@ def convert_jpeg_to_ultrahdr(
         output_path=Path(output_jpeg),
         embedded_icc=icc_profile is not None,
         gain_map_source=gain_map_source,
-        linear_dtype=str(np.dtype(linear_sdr.dtype)),
+        linear_dtype=str(np.dtype(linear_outdtype)),
     )

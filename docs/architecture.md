@@ -23,12 +23,12 @@ Fallback behavior:
 ### Phase B: Encode Ultra HDR with Gain Map
 
 1. Load a user-provided gain map (`.npy` or standard image), or generate one from linear luminance.
-2. Supported internal generation methods:
+2. When generating, the SDR image is downsampled to half resolution (stride-2 subsampling) before computing luminance and the gain map. This reduces the pixel count by 4x through the CMS transform and gain map algorithms. The `radiance` method applies an additional `resize_factor` (default 0.5) internally for the guided filter, yielding 1/16th pixel count at that stage.
+3. Supported internal generation methods:
 	- `log2`: deterministic baseline from clipped log2 luminance.
 	- `radiance`: reflectance-aware guided-Retinex illumination map with robust percentile normalization.
-3. Validate gain map dimensions and channels (single-channel or RGB).
-4. Encode Ultra HDR container with `imagecodecs.ultrahdr_encode`.
-5. Optionally include original ICC metadata for SDR base compatibility.
+4. Validate gain map channels and dtype (single-channel or RGB, uint8).
+5. Compose Ultra HDR JPEG via API-4 (MPF container with XMP and ISO 21496-1 binary metadata). The encoder accepts gain maps of any resolution relative to the SDR JPEG.
 
 ## Module Boundaries
 
@@ -43,18 +43,19 @@ Fallback behavior:
 
 - SDR base input: `uint8` ndarray with shape `(H, W, 3)`.
 - Linearized SDR: float ndarray (typically `float32`) with shape `(H, W, C)`.
-- Gain map: `uint8` ndarray of shape `(H, W)` or `(H, W, 1|3)`.
+- Gain map: `uint8` ndarray of shape `(H, W)` or `(H, W, 1|3)`. Resolution is independent of the SDR base (typically half resolution when auto-generated).
 - Output: Ultra HDR JPEG bytes encoded in MPF container.
 
 ## Radiance Generation Details
 
-- Input: linear SDR luminance from ICC-aware transform.
-- Optional prefilter downscale for speed (`resize_factor`).
-- Guided filtering runs in pure NumPy (integral-image box filter), avoiding OpenCV dependencies.
+- Input: linear SDR luminance from ICC-aware transform (at half resolution).
+- Optional prefilter downscale for speed (`resize_factor`, default 0.5, applied on top of the half-resolution input).
+- Guided filtering runs in pure NumPy (integral-image box filter returning means directly), avoiding OpenCV dependencies. Uses OpenCV `ximgproc.guidedFilter` when available for additional speed.
+- All intermediate computations use in-place NumPy operations to minimize memory allocations.
 - Illumination map is normalized in log space with low/high percentile clipping for stability.
 
 ## Error Strategy
 
 - Raise descriptive `RuntimeError` when required imagecodecs extensions are unavailable.
-- Validate shape/channel mismatches early with `ValueError`.
+- Validate channel/dtype mismatches early with `ValueError`.
 - Keep conversion methods deterministic and side-effect free except file writes.

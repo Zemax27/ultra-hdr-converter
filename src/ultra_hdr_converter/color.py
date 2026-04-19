@@ -31,30 +31,22 @@ def _transform_profiles(
         else "rgb"
     )
 
-    attempts: list[dict[str, Any]] = [
-        {"colorspace": color_space, "outcolorspace": color_space, "outdtype": outdtype},
-        {"colorspace": color_space, "outcolorspace": color_space},
-        {"outdtype": outdtype},
-        {},
-    ]
-
-    last_error: Exception | None = None
-    for kwargs in attempts:
-        try:
-            transformed = cast(Any, imagecodecs.cms_transform)(
-                sdr_array,
-                src_profile,
-                dst_profile,
-                **kwargs,
-            )
-            return np.asarray(transformed, dtype=outdtype)
-        except Exception as exc:
-            last_error = exc
-
-    if last_error is not None:
-        raise last_error
-
-    raise RuntimeError("cms_transform failed unexpectedly without a captured error.")
+    try:
+        transformed = cast(Any, imagecodecs.cms_transform)(
+            sdr_array,
+            src_profile,
+            dst_profile,
+            colorspace=color_space,
+            outcolorspace=color_space,
+            outdtype=outdtype,
+        )
+    except TypeError:
+        transformed = cast(Any, imagecodecs.cms_transform)(
+            sdr_array,
+            src_profile,
+            dst_profile,
+        )
+    return np.asarray(transformed, dtype=outdtype)
 
 
 def _build_linear_profile(profile: bytes | str) -> Any:
@@ -170,11 +162,7 @@ def extract_xyz_luminance(
     linear_srgb = _linearize_to_srgb(sdr_array, icc_profile, outdtype=np.float32)
 
     if linear_srgb.ndim == COLOR_NDIM and linear_srgb.shape[2] >= COLOR_NDIM:
-        luminance = (
-            linear_srgb[..., 0] * _SRGB_TO_XYZ_Y[0]
-            + linear_srgb[..., 1] * _SRGB_TO_XYZ_Y[1]
-            + linear_srgb[..., 2] * _SRGB_TO_XYZ_Y[2]
-        )
+        luminance = np.dot(linear_srgb[..., :3], _SRGB_TO_XYZ_Y)
     elif linear_srgb.ndim == GRAYSCALE_NDIM:
         luminance = linear_srgb
     else:

@@ -45,7 +45,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--radiance-guided-eps",
         type=float,
-        default=0.5,
+        default=1e-3,
         help="Guided filter epsilon for radiance generation.",
     )
     parser.add_argument(

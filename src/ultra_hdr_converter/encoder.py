@@ -30,10 +30,10 @@ _XMP_TEMPLATE = (
     '<x:xmpmeta xmlns:x="adobe:ns:meta/">'
     '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
     '<rdf:Description rdf:about=""'
-    " xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\""
+    ' xmlns:hdrgm="http://ns.adobe.com/hdr-gain-map/1.0/"'
     ' hdrgm:Version="1.0"'
     ' hdrgm:BaseRenditionIsHDR="False"'
-    " hdrgm:GainMapMin=\"0.0\""
+    ' hdrgm:GainMapMin="0.0"'
     ' hdrgm:GainMapMax="{max_content_boost}"'
     ' hdrgm:Gamma="1.0"'
     ' hdrgm:OffsetSDR="0.015625"'
@@ -71,16 +71,8 @@ _ATTR_SECONDARY = 0x00000000
 # ---- Helpers -----------------------------------------------------------------
 
 
-def _float_to_unsigned_fraction(value: float) -> tuple[int, int]:
-    """Convert a non-negative float to an unsigned rational (numerator, denominator)."""
-    if value == 0.0:
-        return (0, 1)
-    frac = Fraction(value).limit_denominator(_FRACTION_DENOM_LIMIT)
-    return (frac.numerator, frac.denominator)
-
-
-def _float_to_signed_fraction(value: float) -> tuple[int, int]:
-    """Convert a float to a signed rational (numerator, denominator)."""
+def _float_to_fraction(value: float) -> tuple[int, int]:
+    """Convert a float to a rational (numerator, denominator)."""
     if value == 0.0:
         return (0, 1)
     frac = Fraction(value).limit_denominator(_FRACTION_DENOM_LIMIT)
@@ -148,33 +140,33 @@ def _build_iso_metadata_bytes(max_content_boost: float) -> bytes:
     buf += struct.pack(">B", 0)
 
     # baseHdrHeadroom = log2(hdrCapacityMin) = 0.0
-    n, d = _float_to_unsigned_fraction(0.0)
+    n, d = _float_to_fraction(0.0)
     buf += struct.pack(">II", n, d)
 
     # alternateHdrHeadroom = log2(hdrCapacityMax) = max_content_boost
-    n, d = _float_to_unsigned_fraction(max_content_boost)
+    n, d = _float_to_fraction(max_content_boost)
     buf += struct.pack(">II", n, d)
 
     # ---- Per-channel fields (single channel) ----
 
     # gainMapMin = log2(minContentBoost) = 0.0
-    n, d = _float_to_signed_fraction(0.0)
+    n, d = _float_to_fraction(0.0)
     buf += struct.pack(">iI", n, d)
 
     # gainMapMax = log2(maxContentBoost) = max_content_boost
-    n, d = _float_to_signed_fraction(max_content_boost)
+    n, d = _float_to_fraction(max_content_boost)
     buf += struct.pack(">iI", n, d)
 
     # gamma = 1.0
-    n, d = _float_to_unsigned_fraction(1.0)
+    n, d = _float_to_fraction(1.0)
     buf += struct.pack(">II", n, d)
 
     # baseOffset = offsetSdr = 1/64
-    n, d = _float_to_signed_fraction(1.0 / 64.0)
+    n, d = _float_to_fraction(1.0 / 64.0)
     buf += struct.pack(">iI", n, d)
 
     # alternateOffset = offsetHdr = 1/64
-    n, d = _float_to_signed_fraction(1.0 / 64.0)
+    n, d = _float_to_fraction(1.0 / 64.0)
     buf += struct.pack(">iI", n, d)
 
     return bytes(buf)
@@ -221,8 +213,16 @@ def _build_mpf_segment(
     # MP Entry data: 16 bytes per image.
     mp_entries = struct.pack(
         "<IIIHH IIIHH",
-        _ATTR_PRIMARY, primary_size, 0, 0, 0,  # primary (offset 0 = self)
-        _ATTR_SECONDARY, gainmap_size, gainmap_data_offset, 0, 0,  # gain map
+        _ATTR_PRIMARY,
+        primary_size,
+        0,
+        0,
+        0,  # primary (offset 0 = self)
+        _ATTR_SECONDARY,
+        gainmap_size,
+        gainmap_data_offset,
+        0,
+        0,  # gain map
     )
 
     # Offset from tiff header to the MP Entry data block.
@@ -272,6 +272,10 @@ def _strip_mpf_segments(jpeg: bytes) -> bytes:
     """Remove any existing MPF APP2 segments from a JPEG byte stream."""
     if jpeg[:2] != _SOI:
         raise ValueError("Not a valid JPEG (missing SOI marker).")
+
+    # Fast path: skip byte-by-byte parsing when no MPF marker is present.
+    if _MPF_ID not in jpeg:
+        return jpeg
 
     parts: list[bytes] = [_SOI]
     pos = 2
@@ -361,18 +365,12 @@ def encode_ultrahdr(
 
     # File offset of the MP Header byte-order mark ("II") inside the
     # composed primary JPEG.  MPF data offsets are relative to this.
-    mp_header_file_offset = (
-        injection_point + len(xmp_segment) + len(iso_version_segment) + 2 + 2 + len(_MPF_ID)
-    )
+    mp_header_file_offset = injection_point + len(xmp_segment) + len(iso_version_segment) + 2 + 2 + len(_MPF_ID)
 
     mpf_segment = _build_mpf_segment(primary_size, len(gain_map_jpeg), mp_header_file_offset)
 
     primary = (
-        clean_jpeg[:injection_point]
-        + xmp_segment
-        + iso_version_segment
-        + mpf_segment
-        + clean_jpeg[injection_point:]
+        clean_jpeg[:injection_point] + xmp_segment + iso_version_segment + mpf_segment + clean_jpeg[injection_point:]
     )
 
     return primary + gain_map_jpeg

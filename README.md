@@ -10,10 +10,10 @@ Dependency and build management use `uv`.
 
 ## Architecture
 
-The codebase follows a two-phase implementation workflow:
+The codebase follows a two-phase workflow:
 
-- Phase A: Decode and linearize the SDR JPEG through embedded ICC profile using `imagecodecs.cms_*`.
-- Phase B: Encode a standards-aligned Ultra HDR JPEG via `imagecodecs.ultrahdr_encode` using SDR base + gain map.
+- **Phase A** -- Decode and linearize the SDR JPEG through its embedded ICC profile using `imagecodecs.cms_*`.
+- **Phase B** -- Generate a gain map (at half resolution for speed) and encode a standards-aligned Ultra HDR JPEG via API-4 composition (MPF container with XMP and ISO 21496-1 metadata).
 
 Detailed design is in [docs/architecture.md](docs/architecture.md).
 
@@ -34,7 +34,10 @@ Detailed design is in [docs/architecture.md](docs/architecture.md).
 |  |- io.py
 |  `- pipeline.py
 |- tests/
+|  |- test_color.py
+|  |- test_encoder.py
 |  |- test_gainmap.py
+|  |- test_io.py
 |  `- test_pipeline.py
 |- pyproject.toml
 ```
@@ -63,9 +66,15 @@ uv run pytest
 uv build
 ```
 
+## Performance
+
+- **Half-resolution gain map**: The pipeline downsamples the SDR image to half resolution before computing luminance and generating the gain map. This reduces pixel count by 4x through the CMS transform and gain map algorithms, while the Ultra HDR encoder accepts gain maps of any size.
+- **In-place NumPy operations**: Gain map generation (`log2`, `radiance`) and normalization use in-place array operations (`np.maximum(..., out=...)`, `np.log(..., out=...)`, `*=`, `/=`) to minimize memory allocations.
+- **Integral-image box filter**: The guided filter uses a padded integral image for O(1)-per-pixel window means, with the mean computed directly to avoid separate division passes.
+- **OpenCV acceleration**: When `cv2` and `cv2.ximgproc` are available, the pipeline uses them for bilinear resize and guided filtering. Only `numpy` + `imagecodecs` are required as core dependencies.
+
 ## Notes
 
 - Use the full `imagecodecs` build with both `cms` and `ultrahdr` extensions enabled.
 - For math on linearized data, keep `float32` output (`--linear-dtype float32` in CLI).
-- Radiance generation is integrated without `opencv`, `Pillow`, or `colour`; only `numpy` + `imagecodecs` are required.
 - When `--gain-map` is not provided, the default generator is `radiance`.

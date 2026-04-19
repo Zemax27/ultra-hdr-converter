@@ -11,17 +11,17 @@ from ultra_hdr_converter.gainmap import (
 
 def test_validate_gain_map_casts_to_uint8() -> None:
     gain = np.full((4, 4), 301.2, dtype=np.float32)
-    validated = validate_gain_map(gain, (4, 4, 3))
+    validated = validate_gain_map(gain)
 
     assert validated.dtype == np.uint8
     assert validated.max() == np.iinfo(np.uint8).max
 
 
-def test_validate_gain_map_rejects_mismatched_shape() -> None:
-    gain = np.zeros((2, 2), dtype=np.uint8)
+def test_validate_gain_map_rejects_invalid_ndim() -> None:
+    gain = np.zeros((2,), dtype=np.uint8)
 
     with pytest.raises(ValueError):
-        validate_gain_map(gain, (3, 3, 3))
+        validate_gain_map(gain)
 
 
 def test_generate_log2_gain_map_returns_expected_shape_dtype() -> None:

@@ -8,6 +8,14 @@ import numpy as np
 from numpy.typing import NDArray
 
 try:
+    import cv2 as _cv2  # type: ignore[import-untyped]
+
+    _HAS_CV2 = True
+except ImportError:
+    _cv2 = None
+    _HAS_CV2 = False
+
+try:
     from cv2 import ximgproc as _ximgproc  # type: ignore[import-untyped]
 
     _HAS_XIMGPROC = True
@@ -31,20 +39,17 @@ class RadianceMapConfig:
 
     resize_factor: float = 0.5
     guided_radius: int = 100
-    guided_eps: float = 0.5
+    guided_eps: float = 1e-3
     clip_percentile_high: float = 99.5
     clip_percentile_low: float = 50.0
 
 
-def validate_gain_map(gain_map: np.ndarray, sdr_shape: tuple[int, ...]) -> UInt8Array:
-    """Validate and normalize gain map to uint8 with expected dimensions."""
+def validate_gain_map(gain_map: np.ndarray) -> UInt8Array:
+    """Validate and normalize gain map to uint8."""
     gain = np.asarray(gain_map)
 
     if gain.ndim not in (GRAYSCALE_NDIM, COLOR_NDIM):
         raise ValueError("Gain map must be 2D or 3D array.")
-
-    if gain.shape[0] != sdr_shape[0] or gain.shape[1] != sdr_shape[1]:
-        raise ValueError("Gain map height and width must match SDR base image.")
 
     if gain.ndim == COLOR_NDIM and gain.shape[2] not in (SINGLE_CHANNEL, COLOR_NDIM):
         raise ValueError("Gain map channels must be 1 or 3 when using a 3D array.")
@@ -52,7 +57,7 @@ def validate_gain_map(gain_map: np.ndarray, sdr_shape: tuple[int, ...]) -> UInt8
     if gain.dtype != np.uint8:
         gain = np.clip(gain, 0, 255).astype(np.uint8)
 
-    return np.asarray(gain, dtype=np.uint8)
+    return gain
 
 
 def generate_log2_gain_map(luminance: np.ndarray, max_stops: float = 6.0) -> UInt8Array:
@@ -72,13 +77,11 @@ def generate_log2_gain_map(luminance: np.ndarray, max_stops: float = 6.0) -> UIn
     if luma.ndim != GRAYSCALE_NDIM:
         raise ValueError("Luminance array must be 2-D (H, W).")
 
-    safe_luma = np.maximum(luma, 1e-6)
-    gain_stops = np.log2(safe_luma)
-    gain_stops = np.clip(gain_stops, 0.0, max_stops)
-
-    normalized = gain_stops / max_stops
-    gain_map = np.rint(normalized * 255.0).astype(np.uint8)
-    return np.asarray(gain_map, dtype=np.uint8)
+    np.maximum(luma, 1e-6, out=luma)
+    np.log2(luma, out=luma)
+    np.clip(luma, 0.0, max_stops, out=luma)
+    luma *= 255.0 / max_stops
+    return np.rint(luma).astype(np.uint8)
 
 
 def _resize_bilinear(image: np.ndarray, height: int, width: int) -> FloatArray:
@@ -88,9 +91,13 @@ def _resize_bilinear(image: np.ndarray, height: int, width: int) -> FloatArray:
 
     src_h, src_w = image.shape
     if src_h == height and src_w == width:
-        return image.astype(np.float32, copy=True)
+        return np.asarray(image, dtype=np.float32)
     if height < 1 or width < 1:
         raise ValueError("Resize dimensions must be positive.")
+
+    if _HAS_CV2:
+        resized = _cv2.resize(np.asarray(image, dtype=np.float32), (width, height), interpolation=_cv2.INTER_LINEAR)
+        return np.asarray(resized, dtype=np.float32)
 
     y = np.linspace(0, src_h - 1, height, dtype=np.float32)
     x = np.linspace(0, src_w - 1, width, dtype=np.float32)
@@ -115,14 +122,16 @@ def _resize_bilinear(image: np.ndarray, height: int, width: int) -> FloatArray:
     return np.asarray(resized, dtype=np.float32)
 
 
-def _box_filter(image: np.ndarray, radius: int) -> FloatArray:
-    """Compute local window sums using a padded integral image."""
+def _box_filter_mean(image: np.ndarray, radius: int) -> FloatArray:
+    """Compute local window means using a padded integral image."""
     if radius < 1:
-        return image.astype(np.float32, copy=True)
+        return np.array(image, dtype=np.float32, copy=True)
 
     window = 2 * radius + 1
-    padded = np.pad(image.astype(np.float32), ((radius, radius), (radius, radius)), mode="edge")
-    integral = np.pad(padded, ((1, 0), (1, 0)), mode="constant").cumsum(axis=0).cumsum(axis=1)
+    padded = np.pad(np.asarray(image, dtype=np.float32), ((radius, radius), (radius, radius)), mode="edge")
+    integral = np.pad(padded, ((1, 0), (1, 0)), mode="constant")
+    integral.cumsum(axis=0, out=integral)
+    integral.cumsum(axis=1, out=integral)
 
     filtered = (
         integral[window:, window:]
@@ -130,7 +139,8 @@ def _box_filter(image: np.ndarray, radius: int) -> FloatArray:
         - integral[window:, :-window]
         + integral[:-window, :-window]
     )
-    return np.asarray(filtered, dtype=np.float32)
+    filtered *= 1.0 / (window * window)
+    return filtered
 
 
 def _guided_filter_grayscale(
@@ -145,42 +155,54 @@ def _guided_filter_grayscale(
     if guide.ndim != GRAYSCALE_NDIM:
         raise ValueError("Guided filter expects single-channel 2D arrays.")
 
-    guide = guide.astype(np.float32, copy=False)
-    src = src.astype(np.float32, copy=False)
+    guide = np.asarray(guide, dtype=np.float32)
+    src = np.asarray(src, dtype=np.float32)
+    self_guided = guide is src
 
-    count = _box_filter(np.ones_like(guide, dtype=np.float32), radius)
-    mean_guide = _box_filter(guide, radius) / count
-    mean_src = _box_filter(src, radius) / count
-    corr_guide = _box_filter(guide * guide, radius) / count
-    corr_guide_src = _box_filter(guide * src, radius) / count
+    mean_guide = _box_filter_mean(guide, radius)
+    # Compute variance in-place: var = mean(guide^2) - mean(guide)^2
+    variance_guide = _box_filter_mean(guide * guide, radius)
+    variance_guide -= mean_guide * mean_guide
 
-    variance_guide = corr_guide - mean_guide * mean_guide
-    covariance = corr_guide_src - mean_guide * mean_src
+    if self_guided:
+        # When guide == src, covariance equals variance; skip redundant box_filter_mean calls.
+        # a = var / (var + eps), computed in-place.
+        a = variance_guide.copy()
+        a /= variance_guide + eps
+        # b = mean_guide * (1 - a), computed in-place.
+        b = np.subtract(1.0, a)
+        b *= mean_guide
+    else:
+        mean_src = _box_filter_mean(src, radius)
+        covariance = _box_filter_mean(guide * src, radius)
+        covariance -= mean_guide * mean_src
+        a = covariance
+        a /= variance_guide + eps
+        b = mean_src - a * mean_guide
 
-    a = covariance / (variance_guide + eps)
-    b = mean_src - a * mean_guide
+    mean_a = _box_filter_mean(a, radius)
+    mean_b = _box_filter_mean(b, radius)
 
-    mean_a = _box_filter(a, radius) / count
-    mean_b = _box_filter(b, radius) / count
-
-    filtered = mean_a * guide + mean_b
-    return np.asarray(filtered, dtype=np.float32)
+    # filtered = mean_a * guide + mean_b, in-place.
+    mean_a *= guide
+    mean_a += mean_b
+    return mean_a
 
 
 def _robust_normalize(image: np.ndarray, low: float, high: float) -> UInt8Array:
     """Map illumination values to uint8 using percentile clipping in log-space."""
-    log_image = np.log(np.maximum(image, 1e-6)).astype(np.float32)
-    flat = log_image.ravel()
+    result = np.maximum(image, 1e-6, out=np.empty_like(image, dtype=np.float32))
+    np.log(result, out=result)
 
-    low_value = float(np.percentile(flat, low))
-    high_value = float(np.percentile(flat, high))
-    if high_value - low_value < NORMALIZATION_EPSILON:
-        return np.zeros_like(image, dtype=np.uint8)
+    low_value, high_value = np.percentile(result, [low, high])
+    spread = high_value - low_value
+    if spread < NORMALIZATION_EPSILON:
+        return np.zeros(image.shape, dtype=np.uint8)
 
-    clipped = np.clip(log_image, low_value, high_value)
-    normalized = (clipped - low_value) / (high_value - low_value)
-    normalized_map = np.rint(normalized * 255.0).astype(np.uint8)
-    return np.asarray(normalized_map, dtype=np.uint8)
+    np.clip(result, low_value, high_value, out=result)
+    result -= low_value
+    result *= 255.0 / spread
+    return np.rint(result).astype(np.uint8)
 
 
 def generate_radiance_gain_map(
@@ -220,7 +242,9 @@ def generate_radiance_gain_map(
     else:
         luminance_for_filter = luma
 
-    log_luminance = np.log(np.maximum(luminance_for_filter, 1e-6)).astype(np.float32)
+    # Compute log-luminance in-place to avoid an extra allocation.
+    log_luminance = np.maximum(luminance_for_filter, 1e-6, out=np.empty_like(luminance_for_filter))
+    np.log(log_luminance, out=log_luminance)
 
     # Edge-preserving smoothing via guided filter.
     # Use OpenCV ximgproc when available for speed; fall back to pure NumPy.

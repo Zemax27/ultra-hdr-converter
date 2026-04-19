@@ -49,7 +49,7 @@ def test_pipeline_uses_radiance_generated_gain_map(monkeypatch: object, tmp_path
     output_file = tmp_path / "output.jpg"
 
     fake_sdr = np.zeros((4, 4, 3), dtype=np.uint8)
-    fake_gain = np.full((4, 4), 111, dtype=np.uint8)
+    fake_gain = np.full((2, 2), 111, dtype=np.uint8)
 
     monkeypatch.setattr("ultra_hdr_converter.pipeline.read_bytes", lambda _: b"jpeg")
     monkeypatch.setattr("ultra_hdr_converter.pipeline.decode_jpeg", lambda _: fake_sdr)
@@ -60,7 +60,7 @@ def test_pipeline_uses_radiance_generated_gain_map(monkeypatch: object, tmp_path
     )
     monkeypatch.setattr(
         "ultra_hdr_converter.pipeline.extract_xyz_luminance",
-        lambda *_args, **_kwargs: np.ones((4, 4), dtype=np.float32),
+        lambda *_args, **_kwargs: np.ones((2, 2), dtype=np.float32),
     )
     monkeypatch.setattr(
         "ultra_hdr_converter.pipeline.generate_radiance_gain_map",
