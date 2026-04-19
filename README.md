@@ -10,7 +10,7 @@ Dependency and build management use `uv`.
 
 ## Architecture
 
-The codebase follows the implementation workflow in [starting-point.md](starting-point.md):
+The codebase follows a two-phase implementation workflow:
 
 - Phase A: Decode and linearize the SDR JPEG through embedded ICC profile using `imagecodecs.cms_*`.
 - Phase B: Encode a standards-aligned Ultra HDR JPEG via `imagecodecs.ultrahdr_encode` using SDR base + gain map.
@@ -24,6 +24,7 @@ Detailed design is in [docs/architecture.md](docs/architecture.md).
 |- .github/workflows/ci.yml
 |- docs/architecture.md
 |- examples/convert_with_custom_gainmap.py
+|- src/gainmap_generator.py
 |- src/ultra_hdr_converter/
 |  |- __init__.py
 |  |- cli.py
@@ -36,7 +37,6 @@ Detailed design is in [docs/architecture.md](docs/architecture.md).
 |  |- test_gainmap.py
 |  `- test_pipeline.py
 |- pyproject.toml
-`- starting-point.md
 ```
 
 ## Quick Start
@@ -44,6 +44,7 @@ Detailed design is in [docs/architecture.md](docs/architecture.md).
 ```powershell
 uv sync --group dev
 uv run uhdr-convert input.jpg output_ultrahdr.jpg --gain-map gain_map.png
+uv run uhdr-convert input.jpg output_ultrahdr.jpg --generated-gain-map radiance
 ```
 
 ## Commands
@@ -66,3 +67,5 @@ uv build
 
 - Use the full `imagecodecs` build with both `cms` and `ultrahdr` extensions enabled.
 - For math on linearized data, keep `float32` output (`--linear-dtype float32` in CLI).
+- Radiance generation is integrated without `opencv`, `Pillow`, or `colour`; only `numpy` + `imagecodecs` are required.
+- When `--gain-map` is not provided, the default generator is `radiance`.

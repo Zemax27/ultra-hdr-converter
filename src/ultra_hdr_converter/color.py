@@ -11,9 +11,7 @@ from numpy.typing import DTypeLike
 
 def _ensure_cms_available() -> None:
     if not hasattr(imagecodecs, "cms_profile") or not hasattr(imagecodecs, "cms_transform"):
-        raise RuntimeError(
-            "imagecodecs cms extension is unavailable. Install full imagecodecs with cms support."
-        )
+        raise RuntimeError("imagecodecs cms extension is unavailable. Install full imagecodecs with cms support.")
 
 
 def linearize_from_icc(
@@ -39,9 +37,7 @@ def linearize_from_icc(
             return np.asarray(linear, dtype=outdtype)
 
     try:
-        return np.asarray(
-            imagecodecs.cms_transform(sdr_array, "srgb", "srgb", linear=True, **kwargs)
-        )
+        return np.asarray(imagecodecs.cms_transform(sdr_array, "srgb", "srgb", linear=True, **kwargs))
     except TypeError:
         linear = imagecodecs.cms_transform(sdr_array, "srgb", "srgb", linear=True)
         return np.asarray(linear, dtype=outdtype)

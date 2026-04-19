@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
+from .gainmap import RadianceMapConfig
 from .pipeline import convert_jpeg_to_ultrahdr
 
 
@@ -22,6 +23,42 @@ def _parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Optional gain map path (.npy or image). If omitted, a baseline map is generated.",
+    )
+    parser.add_argument(
+        "--generated-gain-map",
+        choices=("log2", "radiance"),
+        default="radiance",
+        help="Algorithm used when --gain-map is omitted.",
+    )
+    parser.add_argument(
+        "--radiance-resize-factor",
+        type=float,
+        default=0.5,
+        help="Downscale factor for radiance generation in the range (0, 1].",
+    )
+    parser.add_argument(
+        "--radiance-guided-radius",
+        type=int,
+        default=100,
+        help="Guided filter radius for radiance generation.",
+    )
+    parser.add_argument(
+        "--radiance-guided-eps",
+        type=float,
+        default=0.5,
+        help="Guided filter epsilon for radiance generation.",
+    )
+    parser.add_argument(
+        "--radiance-clip-low",
+        type=float,
+        default=5.0,
+        help="Low percentile for radiance normalization.",
+    )
+    parser.add_argument(
+        "--radiance-clip-high",
+        type=float,
+        default=99.5,
+        help="High percentile for radiance normalization.",
     )
     parser.add_argument(
         "--linear-dtype",
@@ -46,11 +83,20 @@ def _parse_args() -> argparse.Namespace:
 def main() -> None:
     args = _parse_args()
     linear_dtype = np.float32 if args.linear_dtype == "float32" else np.float64
+    radiance_config = RadianceMapConfig(
+        resize_factor=args.radiance_resize_factor,
+        guided_radius=args.radiance_guided_radius,
+        guided_eps=args.radiance_guided_eps,
+        clip_percentile_low=args.radiance_clip_low,
+        clip_percentile_high=args.radiance_clip_high,
+    )
 
     result = convert_jpeg_to_ultrahdr(
         input_jpeg=args.input_jpeg,
         output_jpeg=args.output_jpeg,
         gain_map_path=args.gain_map,
+        generated_gain_map_method=args.generated_gain_map,
+        radiance_config=radiance_config,
         linear_outdtype=linear_dtype,
         embed_icc_profile=not args.no_embed_icc,
         save_linear_npy=args.save_linear_npy,

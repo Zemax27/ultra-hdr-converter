@@ -23,15 +23,18 @@ Fallback behavior:
 ### Phase B: Encode Ultra HDR with Gain Map
 
 1. Load a user-provided gain map (`.npy` or standard image), or generate one from linear luminance.
-2. Validate gain map dimensions and channels (single-channel or RGB).
-3. Encode Ultra HDR container with `imagecodecs.ultrahdr_encode`.
-4. Optionally include original ICC metadata for SDR base compatibility.
+2. Supported internal generation methods:
+	- `log2`: deterministic baseline from clipped log2 luminance.
+	- `radiance`: reflectance-aware guided-Retinex illumination map with robust percentile normalization.
+3. Validate gain map dimensions and channels (single-channel or RGB).
+4. Encode Ultra HDR container with `imagecodecs.ultrahdr_encode`.
+5. Optionally include original ICC metadata for SDR base compatibility.
 
 ## Module Boundaries
 
 - `io.py`: byte I/O, JPEG decode, metadata extraction, gain map loading.
 - `color.py`: ICC/CMS-based linearization and type control.
-- `gainmap.py`: gain map validation and default map generation.
+- `gainmap.py`: gain map validation, baseline generation, and radiance-guided generation.
 - `encoder.py`: Ultra HDR packaging and metadata embedding.
 - `pipeline.py`: orchestration, conversion result object, top-level workflow.
 - `cli.py`: command line interface and argument validation.
@@ -42,6 +45,13 @@ Fallback behavior:
 - Linearized SDR: float ndarray (typically `float32`) with shape `(H, W, C)`.
 - Gain map: `uint8` ndarray of shape `(H, W)` or `(H, W, 1|3)`.
 - Output: Ultra HDR JPEG bytes encoded in MPF container.
+
+## Radiance Generation Details
+
+- Input: linear SDR luminance from ICC-aware transform.
+- Optional prefilter downscale for speed (`resize_factor`).
+- Guided filtering runs in pure NumPy (integral-image box filter), avoiding OpenCV dependencies.
+- Illumination map is normalized in log space with low/high percentile clipping for stability.
 
 ## Error Strategy
 
