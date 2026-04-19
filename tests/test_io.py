@@ -5,7 +5,7 @@ from ultra_hdr_converter.io import extract_icc_profile
 
 def _make_app2_segment(payload: bytes) -> bytes:
     length = len(payload) + 2
-    return b"\xFF\xE2" + length.to_bytes(2, "big") + payload
+    return b"\xff\xe2" + length.to_bytes(2, "big") + payload
 
 
 def _make_jpeg_with_icc_chunks(chunks: list[tuple[int, int, bytes]]) -> bytes:
@@ -14,7 +14,7 @@ def _make_jpeg_with_icc_chunks(chunks: list[tuple[int, int, bytes]]) -> bytes:
     for sequence_index, chunk_count, chunk_payload in chunks:
         payload = signature + bytes([sequence_index, chunk_count]) + chunk_payload
         segments.append(_make_app2_segment(payload))
-    return b"\xFF\xD8" + b"".join(segments) + b"\xFF\xD9"
+    return b"\xff\xd8" + b"".join(segments) + b"\xff\xd9"
 
 
 def test_extract_icc_profile_uses_metadata_when_available(monkeypatch: object) -> None:

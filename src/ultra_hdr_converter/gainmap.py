@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from numpy.typing import NDArray
+
+FloatArray = NDArray[np.float32]
+UInt8Array = NDArray[np.uint8]
 
 
 @dataclass(frozen=True)
@@ -18,7 +22,7 @@ class RadianceMapConfig:
     clip_percentile_low: float = 5.0
 
 
-def validate_gain_map(gain_map: np.ndarray, sdr_shape: tuple[int, ...]) -> np.ndarray:
+def validate_gain_map(gain_map: np.ndarray, sdr_shape: tuple[int, ...]) -> UInt8Array:
     """Validate and normalize gain map to uint8 with expected dimensions."""
     gain = np.asarray(gain_map)
 
@@ -34,10 +38,10 @@ def validate_gain_map(gain_map: np.ndarray, sdr_shape: tuple[int, ...]) -> np.nd
     if gain.dtype != np.uint8:
         gain = np.clip(gain, 0, 255).astype(np.uint8)
 
-    return gain
+    return np.asarray(gain, dtype=np.uint8)
 
 
-def generate_log2_gain_map(linear_sdr: np.ndarray, max_stops: float = 6.0) -> np.ndarray:
+def generate_log2_gain_map(linear_sdr: np.ndarray, max_stops: float = 6.0) -> UInt8Array:
     """
     Create a simple single-channel gain map from linear luminance.
 
@@ -56,10 +60,11 @@ def generate_log2_gain_map(linear_sdr: np.ndarray, max_stops: float = 6.0) -> np
     gain_stops = np.clip(gain_stops, 0.0, max_stops)
 
     normalized = gain_stops / max_stops
-    return np.rint(normalized * 255.0).astype(np.uint8)
+    gain_map = np.rint(normalized * 255.0).astype(np.uint8)
+    return np.asarray(gain_map, dtype=np.uint8)
 
 
-def _resize_bilinear(image: np.ndarray, height: int, width: int) -> np.ndarray:
+def _resize_bilinear(image: np.ndarray, height: int, width: int) -> FloatArray:
     """Resize a single-channel image using bilinear interpolation."""
     if image.ndim != 2:
         raise ValueError("Bilinear resize expects a 2D array.")
@@ -89,10 +94,11 @@ def _resize_bilinear(image: np.ndarray, height: int, width: int) -> np.ndarray:
     top = top_left * (1.0 - wx)[None, :] + top_right * wx[None, :]
     bottom = bottom_left * (1.0 - wx)[None, :] + bottom_right * wx[None, :]
 
-    return top * (1.0 - wy)[:, None] + bottom * wy[:, None]
+    resized = top * (1.0 - wy)[:, None] + bottom * wy[:, None]
+    return np.asarray(resized, dtype=np.float32)
 
 
-def _box_filter(image: np.ndarray, radius: int) -> np.ndarray:
+def _box_filter(image: np.ndarray, radius: int) -> FloatArray:
     """Compute local window sums using a padded integral image."""
     if radius < 1:
         return image.astype(np.float32, copy=True)
@@ -101,15 +107,21 @@ def _box_filter(image: np.ndarray, radius: int) -> np.ndarray:
     padded = np.pad(image.astype(np.float32), ((radius, radius), (radius, radius)), mode="edge")
     integral = np.pad(padded, ((1, 0), (1, 0)), mode="constant").cumsum(axis=0).cumsum(axis=1)
 
-    return (
+    filtered = (
         integral[window:, window:]
         - integral[:-window, window:]
         - integral[window:, :-window]
         + integral[:-window, :-window]
     )
+    return np.asarray(filtered, dtype=np.float32)
 
 
-def _guided_filter_grayscale(guide: np.ndarray, src: np.ndarray, radius: int, eps: float) -> np.ndarray:
+def _guided_filter_grayscale(
+    guide: np.ndarray,
+    src: np.ndarray,
+    radius: int,
+    eps: float,
+) -> FloatArray:
     """Run a grayscale guided filter approximation in pure NumPy."""
     if guide.shape != src.shape:
         raise ValueError("Guide and source arrays must share the same shape.")
@@ -134,10 +146,11 @@ def _guided_filter_grayscale(guide: np.ndarray, src: np.ndarray, radius: int, ep
     mean_a = _box_filter(a, radius) / count
     mean_b = _box_filter(b, radius) / count
 
-    return mean_a * guide + mean_b
+    filtered = mean_a * guide + mean_b
+    return np.asarray(filtered, dtype=np.float32)
 
 
-def _robust_normalize(image: np.ndarray, low: float, high: float) -> np.ndarray:
+def _robust_normalize(image: np.ndarray, low: float, high: float) -> UInt8Array:
     """Map illumination values to uint8 using percentile clipping in log-space."""
     log_image = np.log(np.maximum(image, 1e-6)).astype(np.float32)
     flat = log_image.ravel()
@@ -149,13 +162,14 @@ def _robust_normalize(image: np.ndarray, low: float, high: float) -> np.ndarray:
 
     clipped = np.clip(log_image, low_value, high_value)
     normalized = (clipped - low_value) / (high_value - low_value)
-    return np.rint(normalized * 255.0).astype(np.uint8)
+    normalized_map = np.rint(normalized * 255.0).astype(np.uint8)
+    return np.asarray(normalized_map, dtype=np.uint8)
 
 
 def generate_radiance_gain_map(
     linear_sdr: np.ndarray,
     config: RadianceMapConfig | None = None,
-) -> np.ndarray:
+) -> UInt8Array:
     """
     Generate a reflectance-aware single-channel gain map from linear SDR pixels.
 

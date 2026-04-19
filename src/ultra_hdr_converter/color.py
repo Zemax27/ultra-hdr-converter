@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import imagecodecs
 import numpy as np
@@ -21,10 +21,7 @@ def _transform_profiles(
     outdtype: DTypeLike,
 ) -> np.ndarray:
     """Run CMS transform between two profiles and normalize dtype behavior across API versions."""
-    if sdr_array.ndim == 2 or (sdr_array.ndim == 3 and sdr_array.shape[2] == 1):
-        color_space = "gray"
-    else:
-        color_space = "rgb"
+    color_space = "gray" if sdr_array.ndim == 2 or (sdr_array.ndim == 3 and sdr_array.shape[2] == 1) else "rgb"
 
     attempts: list[dict[str, Any]] = [
         {"colorspace": color_space, "outcolorspace": color_space, "outdtype": outdtype},
@@ -36,7 +33,12 @@ def _transform_profiles(
     last_error: Exception | None = None
     for kwargs in attempts:
         try:
-            transformed = imagecodecs.cms_transform(sdr_array, src_profile, dst_profile, **kwargs)
+            transformed = cast(Any, imagecodecs.cms_transform)(
+                sdr_array,
+                src_profile,
+                dst_profile,
+                **kwargs,
+            )
             return np.asarray(transformed, dtype=outdtype)
         except Exception as exc:
             last_error = exc
@@ -50,31 +52,43 @@ def _transform_profiles(
 def _build_linear_profile(profile: bytes | str) -> Any:
     """Build a linearized ICC profile with support for multiple imagecodecs API generations."""
     try:
-        return imagecodecs.cms_profile(profile, linear=True)
+        return cast(Any, imagecodecs.cms_profile)(profile, linear=True)
     except TypeError:
         pass
 
     try:
-        return imagecodecs.cms_profile(profile, gamma=1.0)
+        return cast(Any, imagecodecs.cms_profile)(profile, gamma=1.0)
     except TypeError:
         pass
 
-    return imagecodecs.cms_profile(profile, transferfunction="linear")
+    return cast(Any, imagecodecs.cms_profile)(profile, transferfunction="linear")
 
 
 def _transform_srgb(sdr_array: np.ndarray, outdtype: DTypeLike) -> np.ndarray:
     """Linearize SDR pixels with standard sRGB transfer assumptions."""
     try:
-        src_profile = imagecodecs.cms_profile("srgb")
+        src_profile = cast(Any, imagecodecs.cms_profile)("srgb")
         dst_profile = _build_linear_profile("srgb")
         return _transform_profiles(sdr_array, src_profile, dst_profile, outdtype)
     except Exception:
         # Legacy fallback path for builds that only support linear=True in cms_transform.
         kwargs: dict[str, Any] = {"outdtype": outdtype}
         try:
-            return np.asarray(imagecodecs.cms_transform(sdr_array, "srgb", "srgb", linear=True, **kwargs))
+            transformed = cast(Any, imagecodecs.cms_transform)(
+                sdr_array,
+                "srgb",
+                "srgb",
+                linear=True,
+                **kwargs,
+            )
+            return np.asarray(transformed)
         except TypeError:
-            linear = imagecodecs.cms_transform(sdr_array, "srgb", "srgb", linear=True)
+            linear = cast(Any, imagecodecs.cms_transform)(
+                sdr_array,
+                "srgb",
+                "srgb",
+                linear=True,
+            )
             return np.asarray(linear, dtype=outdtype)
 
 
@@ -92,7 +106,7 @@ def linearize_from_icc(
 
     if icc_profile:
         try:
-            src_profile = imagecodecs.cms_profile(icc_profile)
+            src_profile = cast(Any, imagecodecs.cms_profile)(icc_profile)
             dst_profile = _build_linear_profile(icc_profile)
             return _transform_profiles(sdr_array, src_profile, dst_profile, outdtype)
         except Exception:

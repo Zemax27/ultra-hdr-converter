@@ -11,7 +11,12 @@ from numpy.typing import DTypeLike
 
 from .color import linearize_from_icc
 from .encoder import encode_ultrahdr
-from .gainmap import RadianceMapConfig, generate_log2_gain_map, generate_radiance_gain_map, validate_gain_map
+from .gainmap import (
+    RadianceMapConfig,
+    generate_log2_gain_map,
+    generate_radiance_gain_map,
+    validate_gain_map,
+)
 from .io import decode_jpeg, extract_icc_profile, load_gain_map, read_bytes, write_bytes
 
 

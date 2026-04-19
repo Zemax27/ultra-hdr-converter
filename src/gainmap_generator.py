@@ -33,7 +33,7 @@ class RadianceMapEstimator:
             clip_percentile_low=float(clipPercentileLow),
         )
 
-    def computeRadianceMap(self, inputPath: str, outputPath: str):
+    def computeRadianceMap(self, inputPath: str, outputPath: str) -> np.ndarray:
         """
         Full pipeline.
 

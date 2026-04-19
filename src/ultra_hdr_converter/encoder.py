@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import imagecodecs
 import numpy as np
 
@@ -27,14 +29,14 @@ def _encode_with_gain_map_api(
             kwargs["metadata"] = {"icc_profile": icc_profile}
 
         try:
-            return bytes(imagecodecs.ultrahdr_encode(sdr_base, **kwargs))
+            return bytes(cast(Any, imagecodecs.ultrahdr_encode)(sdr_base, **kwargs))
         except TypeError as exc:
             message = str(exc)
 
             if "metadata" in kwargs and "unexpected keyword argument 'metadata'" in message:
                 kwargs.pop("metadata")
                 try:
-                    return bytes(imagecodecs.ultrahdr_encode(sdr_base, **kwargs))
+                    return bytes(cast(Any, imagecodecs.ultrahdr_encode)(sdr_base, **kwargs))
                 except TypeError as inner_exc:
                     if "unexpected keyword argument" not in str(inner_exc):
                         raise
@@ -87,7 +89,11 @@ def encode_ultrahdr(
     _ensure_ultrahdr_available()
 
     try:
-        return _encode_with_gain_map_api(sdr_base=sdr_base, gain_map=gain_map, icc_profile=icc_profile)
+        return _encode_with_gain_map_api(
+            sdr_base=sdr_base,
+            gain_map=gain_map,
+            icc_profile=icc_profile,
+        )
     except TypeError:
         pass
 
@@ -98,4 +104,4 @@ def encode_ultrahdr(
         )
 
     rgba_half = _compose_rgba_half_from_linear(linear_sdr=linear_sdr, gain_map=gain_map)
-    return bytes(imagecodecs.ultrahdr_encode(rgba_half))
+    return bytes(cast(Any, imagecodecs.ultrahdr_encode)(rgba_half))

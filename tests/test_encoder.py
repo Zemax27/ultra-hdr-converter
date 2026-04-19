@@ -12,7 +12,10 @@ def test_encode_ultrahdr_uses_gainmap_api_when_available(monkeypatch: object) ->
         captured["kwargs"] = kwargs
         return b"encoded"
 
-    monkeypatch.setattr("ultra_hdr_converter.encoder.imagecodecs.ultrahdr_encode", _fake_ultrahdr_encode)
+    monkeypatch.setattr(
+        "ultra_hdr_converter.encoder.imagecodecs.ultrahdr_encode",
+        _fake_ultrahdr_encode,
+    )
 
     result = encode_ultrahdr(
         sdr_base=np.zeros((2, 2, 3), dtype=np.uint8),
@@ -37,7 +40,10 @@ def test_encode_ultrahdr_falls_back_to_rgba_half_when_gainmap_keyword_unsupporte
             raise TypeError("ultrahdr_encode() got an unexpected keyword argument 'gainmap'")
         return b"encoded-rgba"
 
-    monkeypatch.setattr("ultra_hdr_converter.encoder.imagecodecs.ultrahdr_encode", _fake_ultrahdr_encode)
+    monkeypatch.setattr(
+        "ultra_hdr_converter.encoder.imagecodecs.ultrahdr_encode",
+        _fake_ultrahdr_encode,
+    )
 
     result = encode_ultrahdr(
         sdr_base=np.zeros((3, 4, 3), dtype=np.uint8),
@@ -57,7 +63,10 @@ def test_encode_ultrahdr_requires_linear_sdr_for_rgba_fallback(monkeypatch: obje
     def _fake_ultrahdr_encode(_data: np.ndarray, **_kwargs: object) -> bytes:
         raise TypeError("ultrahdr_encode() got an unexpected keyword argument 'gainmap'")
 
-    monkeypatch.setattr("ultra_hdr_converter.encoder.imagecodecs.ultrahdr_encode", _fake_ultrahdr_encode)
+    monkeypatch.setattr(
+        "ultra_hdr_converter.encoder.imagecodecs.ultrahdr_encode",
+        _fake_ultrahdr_encode,
+    )
 
     with pytest.raises(RuntimeError):
         encode_ultrahdr(

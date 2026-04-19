@@ -27,7 +27,7 @@ def decode_jpeg(jpeg_bytes: bytes) -> np.ndarray:
 
 def _extract_icc_from_jpeg_app2(jpeg_bytes: bytes) -> bytes | None:
     """Extract ICC profile from JPEG APP2 markers according to the ICC JPEG convention."""
-    if len(jpeg_bytes) < 4 or jpeg_bytes[:2] != b"\xFF\xD8":
+    if len(jpeg_bytes) < 4 or jpeg_bytes[:2] != b"\xff\xd8":
         return None
 
     offset = 2
@@ -119,5 +119,5 @@ def load_gain_map(path: Path | str) -> np.ndarray:
     """Load a gain map from .npy or standard image codecs."""
     source = Path(path)
     if source.suffix.lower() == ".npy":
-        return np.load(source)
+        return np.asarray(np.load(source))
     return np.asarray(imagecodecs.imread(str(source)))

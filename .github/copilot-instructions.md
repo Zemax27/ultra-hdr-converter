@@ -15,15 +15,13 @@
 - For algorithm-related code, include explanations of the approach used and comment on why certain design decisions were made.
 - Handle edge cases and write clear exception handling.
 - Avoid adding new libraries; only introduce dependencies when strictly necessary and justified. Mention external dependency usage and purpose in comments.
-- Prefer `imagecodecs` + `numpy` for image I/O and processing. Avoid introducing OpenCV/Pillow/colour unless explicitly requested.
-- Preserve repository architecture boundaries (`io.py`, `color.py`, `gainmap.py`, `encoder.py`, `pipeline.py`, `cli.py`).
 - Update the architecture documentation (docs folder) and the project README.md if you make changes that affect the overall design or framework logic.
 
 ### Code Style and Formatting
 - Follow PEP 8 for Python code style.
 - Always use **ruff** for linting and formatting Python code. Follow configuration rules:
     - Target Python version: 3.12
-    - Line length: 100
+    - Line length: 120
     - Enabled rules: E, F, I, B, UP, SIM
 - Use `mypy` strict mode for static typing checks.
 
