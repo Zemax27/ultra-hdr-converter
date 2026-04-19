@@ -7,7 +7,7 @@
 - Use the `typing` module for type annotations (e.g., `list[str]`, `dict[str, int]`).
 - Provide docstrings following PEP 257 / Google conventions. **Do not repeat type hints in the docstring.**
 - Break down complex functions into smaller, more manageable functions.
-- Prefer package imports rooted at `ultra_hdr_converter` in application-facing code.
+- Use absolute imports only (for example: from ultra_hdr_converter.color import extract_xyz_luminance). Do not use relative imports.
 - Keep numeric processing deterministic and explicit about dtypes (`np.float32` for linear-light math and `np.uint8` for encoded gain maps).
 
 ### General Guidelines

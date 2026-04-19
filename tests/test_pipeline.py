@@ -59,6 +59,10 @@ def test_pipeline_uses_radiance_generated_gain_map(monkeypatch: object, tmp_path
         lambda *_args, **_kwargs: np.ones((4, 4, 3), dtype=np.float32),
     )
     monkeypatch.setattr(
+        "ultra_hdr_converter.pipeline.extract_xyz_luminance",
+        lambda *_args, **_kwargs: np.ones((4, 4), dtype=np.float32),
+    )
+    monkeypatch.setattr(
         "ultra_hdr_converter.pipeline.generate_radiance_gain_map",
         lambda *_args, **_kwargs: fake_gain,
     )

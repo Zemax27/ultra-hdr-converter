@@ -7,6 +7,14 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
+try:
+    from cv2 import ximgproc as _ximgproc  # type: ignore[import-untyped]
+
+    _HAS_XIMGPROC = True
+except ImportError:
+    _ximgproc = None
+    _HAS_XIMGPROC = False
+
 FloatArray = NDArray[np.float32]
 UInt8Array = NDArray[np.uint8]
 
@@ -25,7 +33,7 @@ class RadianceMapConfig:
     guided_radius: int = 100
     guided_eps: float = 0.5
     clip_percentile_high: float = 99.5
-    clip_percentile_low: float = 5.0
+    clip_percentile_low: float = 50.0
 
 
 def validate_gain_map(gain_map: np.ndarray, sdr_shape: tuple[int, ...]) -> UInt8Array:
@@ -47,21 +55,24 @@ def validate_gain_map(gain_map: np.ndarray, sdr_shape: tuple[int, ...]) -> UInt8
     return np.asarray(gain, dtype=np.uint8)
 
 
-def generate_log2_gain_map(linear_sdr: np.ndarray, max_stops: float = 6.0) -> UInt8Array:
+def generate_log2_gain_map(luminance: np.ndarray, max_stops: float = 6.0) -> UInt8Array:
     """
-    Create a simple single-channel gain map from linear luminance.
+    Create a simple single-channel gain map from CIE Y luminance.
 
     This is a deterministic baseline map for experimentation, not a full HDR tone mapping model.
-    """
-    linear = np.asarray(linear_sdr, dtype=np.float32)
-    if linear.ndim == COLOR_NDIM and linear.shape[2] >= COLOR_NDIM:
-        luminance = linear[..., 0] * 0.2126 + linear[..., 1] * 0.7152 + linear[..., 2] * 0.0722
-    elif linear.ndim == GRAYSCALE_NDIM:
-        luminance = linear
-    else:
-        raise ValueError("Linear SDR array must be shape (H, W) or (H, W, C>=3).")
 
-    safe_luma = np.maximum(luminance, 1e-6)
+    Args:
+        luminance: 2-D array of linear luminance values (CIE Y from XYZ).
+        max_stops: Maximum exposure stops to encode.
+
+    Returns:
+        Single-channel uint8 gain map.
+    """
+    luma = np.asarray(luminance, dtype=np.float32)
+    if luma.ndim != GRAYSCALE_NDIM:
+        raise ValueError("Luminance array must be 2-D (H, W).")
+
+    safe_luma = np.maximum(luma, 1e-6)
     gain_stops = np.log2(safe_luma)
     gain_stops = np.clip(gain_stops, 0.0, max_stops)
 
@@ -173,14 +184,14 @@ def _robust_normalize(image: np.ndarray, low: float, high: float) -> UInt8Array:
 
 
 def generate_radiance_gain_map(
-    linear_sdr: np.ndarray,
+    luminance: np.ndarray,
     config: RadianceMapConfig | None = None,
 ) -> UInt8Array:
     """
-    Generate a reflectance-aware single-channel gain map from linear SDR pixels.
+    Generate a reflectance-aware single-channel gain map from CIE Y luminance.
 
     Args:
-        linear_sdr: Linearized SDR image array.
+        luminance: 2-D array of linear luminance values (CIE Y from XYZ).
         config: Optional radiance generation configuration.
 
     Returns:
@@ -197,26 +208,33 @@ def generate_radiance_gain_map(
     if not 0.0 <= cfg.clip_percentile_low < cfg.clip_percentile_high <= PERCENT_MAX:
         raise ValueError("Radiance clip percentiles must satisfy 0 <= low < high <= 100.")
 
-    linear = np.asarray(linear_sdr, dtype=np.float32)
-    if linear.ndim == COLOR_NDIM and linear.shape[2] >= COLOR_NDIM:
-        luminance = linear[..., 0] * 0.2126 + linear[..., 1] * 0.7152 + linear[..., 2] * 0.0722
-    elif linear.ndim == GRAYSCALE_NDIM:
-        luminance = linear
-    else:
-        raise ValueError("Linear SDR array must be shape (H, W) or (H, W, C>=3).")
+    luma = np.asarray(luminance, dtype=np.float32)
+    if luma.ndim != GRAYSCALE_NDIM:
+        raise ValueError("Luminance array must be 2-D (H, W).")
 
-    source_height, source_width = luminance.shape
+    source_height, source_width = luma.shape
     if cfg.resize_factor < 1.0:
         target_height = max(1, int(round(source_height * cfg.resize_factor)))
         target_width = max(1, int(round(source_width * cfg.resize_factor)))
-        luminance_for_filter = _resize_bilinear(luminance, target_height, target_width)
+        luminance_for_filter = _resize_bilinear(luma, target_height, target_width)
     else:
-        luminance_for_filter = luminance
+        luminance_for_filter = luma
 
     log_luminance = np.log(np.maximum(luminance_for_filter, 1e-6)).astype(np.float32)
-    illumination_small = np.exp(
-        _guided_filter_grayscale(log_luminance, log_luminance, cfg.guided_radius, cfg.guided_eps)
-    )
+
+    # Edge-preserving smoothing via guided filter.
+    # Use OpenCV ximgproc when available for speed; fall back to pure NumPy.
+    if _HAS_XIMGPROC:
+        smoothed = _ximgproc.guidedFilter(
+            guide=log_luminance,
+            src=log_luminance,
+            radius=cfg.guided_radius,
+            eps=cfg.guided_eps,
+        )
+    else:
+        smoothed = _guided_filter_grayscale(log_luminance, log_luminance, cfg.guided_radius, cfg.guided_eps)
+
+    illumination_small = np.exp(smoothed)
 
     if illumination_small.shape != (source_height, source_width):
         illumination = _resize_bilinear(illumination_small, source_height, source_width)

@@ -122,3 +122,62 @@ def linearize_from_icc(
             return _transform_srgb(sdr_array, outdtype)
 
     return _transform_srgb(sdr_array, outdtype)
+
+
+# sRGB to CIE XYZ conversion matrix, Y row (ITU-R BT.709 primaries).
+# Applied to linear sRGB values to obtain CIE 1931 photopic luminance.
+_SRGB_TO_XYZ_Y = np.array([0.2126729, 0.7151522, 0.0721750], dtype=np.float32)
+
+
+def _linearize_to_srgb(sdr_array: np.ndarray, icc_profile: bytes | None, outdtype: DTypeLike) -> np.ndarray:
+    """Convert SDR pixels to linear sRGB regardless of source ICC profile."""
+    _ensure_cms_available()
+
+    dst_profile = _build_linear_profile("srgb")
+
+    if icc_profile:
+        try:
+            src_profile = cast(Any, imagecodecs.cms_profile)(icc_profile)
+            return _transform_profiles(sdr_array, src_profile, dst_profile, outdtype)
+        except Exception:
+            pass
+
+    # Fallback: assume source is sRGB.
+    src_profile = cast(Any, imagecodecs.cms_profile)("srgb")
+    return _transform_profiles(sdr_array, src_profile, dst_profile, outdtype)
+
+
+def extract_xyz_luminance(
+    sdr_array: np.ndarray,
+    icc_profile: bytes | None,
+    outdtype: DTypeLike = np.float32,
+) -> np.ndarray:
+    """
+    Convert SDR pixels to CIE XYZ via linear sRGB and return the Y channel.
+
+    The source ICC profile is used for chromatic adaptation to sRGB primaries
+    before applying the standard sRGB-to-XYZ matrix. Falls back to sRGB
+    assumptions when the profile is missing or rejected by CMS.
+
+    Args:
+        sdr_array: Non-linear SDR image (uint8, H x W x 3).
+        icc_profile: Embedded ICC profile bytes, or None.
+        outdtype: Output dtype for the luminance array.
+
+    Returns:
+        2-D float array of CIE Y (luminance) values.
+    """
+    linear_srgb = _linearize_to_srgb(sdr_array, icc_profile, outdtype=np.float32)
+
+    if linear_srgb.ndim == COLOR_NDIM and linear_srgb.shape[2] >= COLOR_NDIM:
+        luminance = (
+            linear_srgb[..., 0] * _SRGB_TO_XYZ_Y[0]
+            + linear_srgb[..., 1] * _SRGB_TO_XYZ_Y[1]
+            + linear_srgb[..., 2] * _SRGB_TO_XYZ_Y[2]
+        )
+    elif linear_srgb.ndim == GRAYSCALE_NDIM:
+        luminance = linear_srgb
+    else:
+        raise ValueError("SDR array must be shape (H, W) or (H, W, C>=3).")
+
+    return np.asarray(luminance, dtype=outdtype)

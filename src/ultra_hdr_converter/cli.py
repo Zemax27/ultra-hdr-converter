@@ -51,7 +51,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--radiance-clip-low",
         type=float,
-        default=5.0,
+        default=50.0,
         help="Low percentile for radiance normalization.",
     )
     parser.add_argument(

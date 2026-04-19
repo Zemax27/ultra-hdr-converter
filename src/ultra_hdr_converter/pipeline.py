@@ -9,7 +9,7 @@ from typing import Literal
 import numpy as np
 from numpy.typing import DTypeLike
 
-from .color import linearize_from_icc
+from .color import extract_xyz_luminance, linearize_from_icc
 from .encoder import encode_ultrahdr
 from .gainmap import (
     RadianceMapConfig,
@@ -40,9 +40,7 @@ def convert_jpeg_to_ultrahdr(
     embed_icc_profile: bool = True,
     save_linear_npy: Path | str | None = None,
 ) -> ConversionResult:
-    """
-    Convert an SDR JPEG to Ultra HDR JPEG using either external or generated gain map.
-    """
+    """Convert an SDR JPEG to Ultra HDR JPEG using either external or generated gain map."""
     input_bytes = read_bytes(input_jpeg)
     sdr_base = decode_jpeg(input_bytes)
     icc_profile = extract_icc_profile(input_bytes)
@@ -61,27 +59,29 @@ def convert_jpeg_to_ultrahdr(
         gain_map = validate_gain_map(load_gain_map(gain_map_path), sdr_base.shape)
         gain_map_source = "external"
     else:
+        # Compute CIE Y luminance via XYZ conversion for gain map generation.
+        luminance = extract_xyz_luminance(sdr_base, icc_profile)
+
         if generated_gain_map_method == "radiance":
-            gain_map = generate_radiance_gain_map(linear_sdr, config=radiance_config)
+            gain_map = generate_radiance_gain_map(luminance, config=radiance_config)
             gain_map_source = "generated-radiance"
         else:
-            gain_map = generate_log2_gain_map(linear_sdr)
+            gain_map = generate_log2_gain_map(luminance)
             gain_map_source = "generated-log2"
 
         gain_map = validate_gain_map(gain_map, sdr_base.shape)
 
-    icc_for_output = icc_profile if embed_icc_profile else None
+    # API-4 composition: the original SDR JPEG is preserved byte-for-byte,
+    # keeping its encoding quality and ICC profile intact.
     ultrahdr_bytes = encode_ultrahdr(
-        sdr_base=sdr_base,
+        sdr_jpeg=input_bytes,
         gain_map=gain_map,
-        icc_profile=icc_for_output,
-        linear_sdr=linear_sdr,
     )
     write_bytes(output_jpeg, ultrahdr_bytes)
 
     return ConversionResult(
         output_path=Path(output_jpeg),
-        embedded_icc=icc_for_output is not None,
+        embedded_icc=icc_profile is not None,
         gain_map_source=gain_map_source,
         linear_dtype=str(np.dtype(linear_sdr.dtype)),
     )
