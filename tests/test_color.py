@@ -50,7 +50,12 @@ def test_extract_xyz_luminance_returns_2d_float(monkeypatch: object) -> None:
         _dst: object,
         **_kwargs: object,
     ) -> np.ndarray:
-        return np.ones((3, 3, 3), dtype=np.float32)
+        # Simulate CMS XYZ output: X=0.5, Y=0.7, Z=0.3 per pixel.
+        result = np.empty((3, 3, 3), dtype=np.float32)
+        result[..., 0] = 0.5
+        result[..., 1] = 0.7
+        result[..., 2] = 0.3
+        return result
 
     monkeypatch.setattr("ultra_hdr_converter.color.imagecodecs.cms_profile", _fake_profile)
     monkeypatch.setattr("ultra_hdr_converter.color.imagecodecs.cms_transform", _fake_transform)
@@ -60,5 +65,5 @@ def test_extract_xyz_luminance_returns_2d_float(monkeypatch: object) -> None:
     assert luminance.ndim == EXPECTED_NDIM
     assert luminance.shape == (3, 3)
     assert luminance.dtype == np.float32
-    # For uniform linear sRGB (1.0, 1.0, 1.0), Y ≈ 0.2127 + 0.7152 + 0.0722 ≈ 1.0.
-    assert np.allclose(luminance, 1.0, atol=1e-4)
+    # Y channel should be extracted directly (0.7).
+    assert np.allclose(luminance, 0.7, atol=1e-6)

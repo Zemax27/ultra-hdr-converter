@@ -116,27 +116,49 @@ def linearize_from_icc(
     return _transform_srgb(sdr_array, outdtype)
 
 
-# sRGB to CIE XYZ conversion matrix, Y row (ITU-R BT.709 primaries).
-# Applied to linear sRGB values to obtain CIE 1931 photopic luminance.
-_SRGB_TO_XYZ_Y = np.array([0.2126729, 0.7151522, 0.0721750], dtype=np.float32)
+def _transform_to_xyz(
+    sdr_array: np.ndarray,
+    icc_profile: bytes | None,
+    outdtype: DTypeLike,
+) -> np.ndarray:
+    """Convert SDR pixels directly to CIE XYZ using CMS.
 
-
-def _linearize_to_srgb(sdr_array: np.ndarray, icc_profile: bytes | None, outdtype: DTypeLike) -> np.ndarray:
-    """Convert SDR pixels to linear sRGB regardless of source ICC profile."""
+    Transforms through the ICC Profile Connection Space (CIE XYZ D50),
+    avoiding intermediate sRGB conversion and potential gamut clipping.
+    Falls back to sRGB assumptions when the profile is missing or rejected.
+    """
     _ensure_cms_available()
 
-    dst_profile = _build_linear_profile("srgb")
+    xyz_profile = cast(Any, imagecodecs.cms_profile)("xyz")
+
+    def _cms_to_xyz(src_profile: Any) -> np.ndarray:
+        try:
+            transformed = cast(Any, imagecodecs.cms_transform)(
+                sdr_array,
+                src_profile,
+                xyz_profile,
+                colorspace="rgb",
+                outcolorspace="xyz",
+                outdtype=outdtype,
+            )
+        except TypeError:
+            transformed = cast(Any, imagecodecs.cms_transform)(
+                sdr_array,
+                src_profile,
+                xyz_profile,
+            )
+        return np.asarray(transformed, dtype=outdtype)
 
     if icc_profile:
         try:
             src_profile = cast(Any, imagecodecs.cms_profile)(icc_profile)
-            return _transform_profiles(sdr_array, src_profile, dst_profile, outdtype)
+            return _cms_to_xyz(src_profile)
         except Exception:
             pass
 
     # Fallback: assume source is sRGB.
     src_profile = cast(Any, imagecodecs.cms_profile)("srgb")
-    return _transform_profiles(sdr_array, src_profile, dst_profile, outdtype)
+    return _cms_to_xyz(src_profile)
 
 
 def extract_xyz_luminance(
@@ -144,12 +166,12 @@ def extract_xyz_luminance(
     icc_profile: bytes | None,
     outdtype: DTypeLike = np.float32,
 ) -> np.ndarray:
-    """
-    Convert SDR pixels to CIE XYZ via linear sRGB and return the Y channel.
+    """Convert SDR pixels to CIE XYZ and return the Y (luminance) channel.
 
-    The source ICC profile is used for chromatic adaptation to sRGB primaries
-    before applying the standard sRGB-to-XYZ matrix. Falls back to sRGB
-    assumptions when the profile is missing or rejected by CMS.
+    Uses the ICC Profile Connection Space (CIE XYZ D50) for a direct
+    conversion that correctly handles any source colourspace without
+    intermediate sRGB gamut clipping.  Falls back to sRGB assumptions
+    when the profile is missing or rejected by CMS.
 
     Args:
         sdr_array: Non-linear SDR image (uint8, H x W x 3).
@@ -159,13 +181,13 @@ def extract_xyz_luminance(
     Returns:
         2-D float array of CIE Y (luminance) values.
     """
-    linear_srgb = _linearize_to_srgb(sdr_array, icc_profile, outdtype=np.float32)
+    if sdr_array.ndim == GRAYSCALE_NDIM:
+        return np.asarray(sdr_array, dtype=outdtype)
 
-    if linear_srgb.ndim == COLOR_NDIM and linear_srgb.shape[2] >= COLOR_NDIM:
-        luminance = np.dot(linear_srgb[..., :3], _SRGB_TO_XYZ_Y)
-    elif linear_srgb.ndim == GRAYSCALE_NDIM:
-        luminance = linear_srgb
-    else:
+    xyz = _transform_to_xyz(sdr_array, icc_profile, outdtype=np.float32)
+
+    if xyz.ndim != COLOR_NDIM or xyz.shape[2] < COLOR_NDIM:
         raise ValueError("SDR array must be shape (H, W) or (H, W, C>=3).")
 
-    return np.asarray(luminance, dtype=outdtype)
+    # Y is the second channel of CIE XYZ.
+    return np.asarray(xyz[..., 1], dtype=outdtype)
