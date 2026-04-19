@@ -14,6 +14,70 @@ def _ensure_cms_available() -> None:
         raise RuntimeError("imagecodecs cms extension is unavailable. Install full imagecodecs with cms support.")
 
 
+def _transform_profiles(
+    sdr_array: np.ndarray,
+    src_profile: Any,
+    dst_profile: Any,
+    outdtype: DTypeLike,
+) -> np.ndarray:
+    """Run CMS transform between two profiles and normalize dtype behavior across API versions."""
+    if sdr_array.ndim == 2 or (sdr_array.ndim == 3 and sdr_array.shape[2] == 1):
+        color_space = "gray"
+    else:
+        color_space = "rgb"
+
+    attempts: list[dict[str, Any]] = [
+        {"colorspace": color_space, "outcolorspace": color_space, "outdtype": outdtype},
+        {"colorspace": color_space, "outcolorspace": color_space},
+        {"outdtype": outdtype},
+        {},
+    ]
+
+    last_error: Exception | None = None
+    for kwargs in attempts:
+        try:
+            transformed = imagecodecs.cms_transform(sdr_array, src_profile, dst_profile, **kwargs)
+            return np.asarray(transformed, dtype=outdtype)
+        except Exception as exc:
+            last_error = exc
+
+    if last_error is not None:
+        raise last_error
+
+    raise RuntimeError("cms_transform failed unexpectedly without a captured error.")
+
+
+def _build_linear_profile(profile: bytes | str) -> Any:
+    """Build a linearized ICC profile with support for multiple imagecodecs API generations."""
+    try:
+        return imagecodecs.cms_profile(profile, linear=True)
+    except TypeError:
+        pass
+
+    try:
+        return imagecodecs.cms_profile(profile, gamma=1.0)
+    except TypeError:
+        pass
+
+    return imagecodecs.cms_profile(profile, transferfunction="linear")
+
+
+def _transform_srgb(sdr_array: np.ndarray, outdtype: DTypeLike) -> np.ndarray:
+    """Linearize SDR pixels with standard sRGB transfer assumptions."""
+    try:
+        src_profile = imagecodecs.cms_profile("srgb")
+        dst_profile = _build_linear_profile("srgb")
+        return _transform_profiles(sdr_array, src_profile, dst_profile, outdtype)
+    except Exception:
+        # Legacy fallback path for builds that only support linear=True in cms_transform.
+        kwargs: dict[str, Any] = {"outdtype": outdtype}
+        try:
+            return np.asarray(imagecodecs.cms_transform(sdr_array, "srgb", "srgb", linear=True, **kwargs))
+        except TypeError:
+            linear = imagecodecs.cms_transform(sdr_array, "srgb", "srgb", linear=True)
+            return np.asarray(linear, dtype=outdtype)
+
+
 def linearize_from_icc(
     sdr_array: np.ndarray,
     icc_profile: bytes | None,
@@ -26,18 +90,13 @@ def linearize_from_icc(
     """
     _ensure_cms_available()
 
-    kwargs: dict[str, Any] = {"outdtype": outdtype}
     if icc_profile:
-        src_profile = imagecodecs.cms_profile(icc_profile)
-        dst_profile = imagecodecs.cms_profile(icc_profile, linear=True)
         try:
-            return np.asarray(imagecodecs.cms_transform(sdr_array, src_profile, dst_profile, **kwargs))
-        except TypeError:
-            linear = imagecodecs.cms_transform(sdr_array, src_profile, dst_profile)
-            return np.asarray(linear, dtype=outdtype)
+            src_profile = imagecodecs.cms_profile(icc_profile)
+            dst_profile = _build_linear_profile(icc_profile)
+            return _transform_profiles(sdr_array, src_profile, dst_profile, outdtype)
+        except Exception:
+            # Some JPEGs carry ICC payloads that libcms rejects; use deterministic sRGB fallback.
+            return _transform_srgb(sdr_array, outdtype)
 
-    try:
-        return np.asarray(imagecodecs.cms_transform(sdr_array, "srgb", "srgb", linear=True, **kwargs))
-    except TypeError:
-        linear = imagecodecs.cms_transform(sdr_array, "srgb", "srgb", linear=True)
-        return np.asarray(linear, dtype=outdtype)
+    return _transform_srgb(sdr_array, outdtype)

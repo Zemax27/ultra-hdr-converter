@@ -66,7 +66,12 @@ def convert_jpeg_to_ultrahdr(
         gain_map = validate_gain_map(gain_map, sdr_base.shape)
 
     icc_for_output = icc_profile if embed_icc_profile else None
-    ultrahdr_bytes = encode_ultrahdr(sdr_base=sdr_base, gain_map=gain_map, icc_profile=icc_for_output)
+    ultrahdr_bytes = encode_ultrahdr(
+        sdr_base=sdr_base,
+        gain_map=gain_map,
+        icc_profile=icc_for_output,
+        linear_sdr=linear_sdr,
+    )
     write_bytes(output_jpeg, ultrahdr_bytes)
 
     return ConversionResult(
