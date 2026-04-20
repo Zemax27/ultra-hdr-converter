@@ -5,6 +5,7 @@
 - Implement an end-to-end Ultra HDR packaging flow from SDR JPEG + gain map.
 - Preserve color intent through ICC profile handling for SDR base.
 - Keep the conversion steps modular for reproducibility and testing.
+- Support both single-file and batch-oriented entry points without changing the core conversion path.
 
 ## Pipeline Phases
 
@@ -44,6 +45,8 @@ The package exports a minimal surface for programmatic use:
 - `validate_gain_map()` — type/shape validation for external gain maps.
 - `linearize_from_icc()` — ICC-aware linearization for advanced users.
 
+The pipeline also accepts an optional coarse-grained progress callback used by the CLI and GUI. Progress notifications are emitted only at major phase boundaries to avoid affecting the numeric hot path.
+
 ## Module Boundaries
 
 - `io.py`: byte I/O, JPEG decode, metadata extraction, gain map loading.
@@ -51,7 +54,8 @@ The package exports a minimal surface for programmatic use:
 - `gainmap.py`: gain map validation and highlight-targeted generation.
 - `encoder.py`: Ultra HDR packaging and metadata embedding.
 - `pipeline.py`: orchestration, conversion result object, top-level workflow.
-- `cli.py`: command line interface and argument validation.
+- `cli.py`: command line interface, backward-compatible single-file mode, and batch job resolution.
+- `gui.py`: optional desktop UI built on CustomTkinter and a background worker thread.
 
 ## Data Contracts
 

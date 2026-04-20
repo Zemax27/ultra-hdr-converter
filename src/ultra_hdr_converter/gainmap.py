@@ -8,7 +8,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 try:
-    import cv2 as _cv2  # type: ignore[import-untyped]
+    import cv2 as _cv2  # type: ignore[import-not-found]
 
     _HAS_CV2 = True
 except ImportError:
@@ -16,7 +16,7 @@ except ImportError:
     _HAS_CV2 = False
 
 try:
-    from cv2 import ximgproc as _ximgproc  # type: ignore[import-untyped]
+    from cv2 import ximgproc as _ximgproc
 
     _HAS_XIMGPROC = True
 except ImportError:
@@ -127,7 +127,9 @@ def _guided_filter_grayscale(
 def _gaussian_blur(image: np.ndarray, sigma: float) -> FloatArray:
     """Gaussian blur using cv2 when available, else 3-pass box filter approximation."""
     if _HAS_CV2:
-        return np.asarray(_cv2.GaussianBlur(np.asarray(image, dtype=np.float32), (0, 0), sigmaX=sigma), dtype=np.float32)
+        return np.asarray(
+            _cv2.GaussianBlur(np.asarray(image, dtype=np.float32), (0, 0), sigmaX=sigma), dtype=np.float32
+        )
 
     # Three-pass box filter approximates a Gaussian with effective sigma ~ radius.
     radius = max(1, int(round(sigma)))

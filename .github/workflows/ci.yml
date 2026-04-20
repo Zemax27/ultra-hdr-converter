@@ -12,16 +12,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
-
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v3
+          enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --group dev
+        # --extra cli installs rich, required by the CLI entry point and tested in test_cli.py
+        run: uv sync --group dev --extra cli
 
       - name: Lint
         run: uv run ruff check .

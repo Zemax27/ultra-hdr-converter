@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset_name: linux
+          - os: windows-latest
+            asset_name: windows
+          - os: macos-latest
+            asset_name: macos
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --group dev --extra gui
+
+      - name: Build GUI bundle
+        run: uv run pyinstaller --noconfirm --clean --onedir --windowed --paths src src/ultra_hdr_converter/gui.py --name uhdr-gui
+
+      - name: Package bundle (Unix)
+        if: runner.os != 'Windows'
+        run: zip -r uhdr-gui-${{ matrix.asset_name }}.zip dist/uhdr-gui
+
+      - name: Package bundle (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path dist/uhdr-gui -DestinationPath uhdr-gui-${{ matrix.asset_name }}.zip
+
+      - name: Upload packaged bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: uhdr-gui-${{ matrix.asset_name }}
+          path: uhdr-gui-${{ matrix.asset_name }}.zip
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download packaged bundles
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Collect release archives
+        run: find release-assets -type f -name '*.zip' -exec cp {} . \;
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: uhdr-gui-*.zip

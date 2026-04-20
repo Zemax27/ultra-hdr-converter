@@ -79,3 +79,47 @@ def test_pipeline_uses_generated_gain_map(monkeypatch: object, tmp_path: Path) -
     assert result.gain_map_source == "generated"
     assert result.has_icc is False
     assert written[str(output_file)] == b"ultrahdr"
+
+
+def test_pipeline_reports_progress_steps(monkeypatch: object, tmp_path: Path) -> None:
+    input_file = tmp_path / "input.jpg"
+    output_file = tmp_path / "output.jpg"
+
+    fake_sdr = np.zeros((4, 4, 3), dtype=np.uint8)
+    fake_gain = np.full((2, 2), 111, dtype=np.uint8)
+
+    monkeypatch.setattr("ultra_hdr_converter.pipeline.read_bytes", lambda _: b"jpeg")
+    monkeypatch.setattr("ultra_hdr_converter.pipeline.decode_jpeg", lambda _: fake_sdr)
+    monkeypatch.setattr("ultra_hdr_converter.pipeline.extract_icc_profile", lambda _: None)
+    monkeypatch.setattr(
+        "ultra_hdr_converter.pipeline.extract_xyz_luminance",
+        lambda *_args, **_kwargs: np.ones((2, 2), dtype=np.float32),
+    )
+    monkeypatch.setattr(
+        "ultra_hdr_converter.pipeline.generate_gain_map",
+        lambda *_args, **_kwargs: fake_gain,
+    )
+    monkeypatch.setattr(
+        "ultra_hdr_converter.pipeline.encode_ultrahdr",
+        lambda **_kwargs: b"ultrahdr",
+    )
+    monkeypatch.setattr("ultra_hdr_converter.pipeline.write_bytes", lambda *_args, **_kwargs: None)
+
+    progress_updates: list[tuple[str, int, int]] = []
+
+    def _capture_progress(message: str, step: int, total_steps: int) -> None:
+        progress_updates.append((message, step, total_steps))
+
+    convert_jpeg_to_ultrahdr(
+        input_jpeg=input_file,
+        output_jpeg=output_file,
+        progress_callback=_capture_progress,
+    )
+
+    assert progress_updates == [
+        ("Reading and decoding input JPEG", 1, 5),
+        ("Extracting luminance from SDR", 2, 5),
+        ("Generating highlight-targeted gain map", 3, 5),
+        ("Encoding Ultra HDR metadata and container", 4, 5),
+        ("Writing final output file", 5, 5),
+    ]
