@@ -1,0 +1,29 @@
+Third-Party Dependencies and Licenses
+=====================================
+
+This project depends on third-party open-source libraries.
+Their licenses apply to those libraries themselves.
+
+Direct runtime dependencies:
+- imagecodecs (BSD 3-Clause)
+- numpy (BSD 3-Clause)
+
+Optional dependencies:
+- rich (MIT)
+- customtkinter (MIT)
+
+Development/build dependencies:
+- pytest (MIT)
+- pytest-cov (MIT)
+- ruff (MIT)
+- mypy (MIT)
+- pyinstaller (GPLv2 with bootloader exception)
+
+Important notes:
+- This project is licensed under the Apache License 2.0 (see LICENSE).
+- Using these dependencies does not relicense your source code.
+- If you distribute bundled executables (for example via PyInstaller),
+  keep third-party notices and license obligations with your release assets.
+
+For authoritative and current license terms, refer to each dependency's
+official repository and published package metadata.

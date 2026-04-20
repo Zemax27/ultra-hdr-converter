@@ -172,3 +172,14 @@ src/ultra_hdr_converter/
 ├── cli.py        — Command line interface (uhdr-convert)
 └── gui.py        — Optional desktop GUI (uhdr-gui)
 ```
+
+## License
+
+This repository is licensed under the Apache License 2.0.
+
+- Full text: [LICENSE](LICENSE)
+- Dependency notices: [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt)
+
+Third-party libraries keep their own licenses. If you redistribute binaries
+(for example PyInstaller bundles), include applicable third-party notices
+and license files in your release assets.

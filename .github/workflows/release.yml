@@ -38,6 +38,19 @@ jobs:
       - name: Build GUI bundle
         run: uv run pyinstaller --noconfirm --clean --onedir --windowed --paths src src/ultra_hdr_converter/gui.py --name uhdr-gui
 
+      - name: Attach license files to bundle
+        if: runner.os != 'Windows'
+        run: |
+          cp LICENSE dist/uhdr-gui/LICENSE
+          cp THIRD_PARTY_NOTICES.txt dist/uhdr-gui/THIRD_PARTY_NOTICES.txt
+
+      - name: Attach license files to bundle (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Copy-Item LICENSE dist/uhdr-gui/LICENSE -Force
+          Copy-Item THIRD_PARTY_NOTICES.txt dist/uhdr-gui/THIRD_PARTY_NOTICES.txt -Force
+
       - name: Package bundle (Unix)
         if: runner.os != 'Windows'
         run: zip -r uhdr-gui-${{ matrix.asset_name }}.zip dist/uhdr-gui
@@ -64,6 +77,28 @@ jobs:
 
       - name: Collect release archives
         run: find release-assets -type f -name '*.zip' -exec cp {} . \;
+
+      - name: Verify license files in release archives
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          archives = sorted(Path('.').glob('uhdr-gui-*.zip'))
+          if not archives:
+              raise SystemExit('No release archives found to verify.')
+
+          required_files = {'LICENSE', 'THIRD_PARTY_NOTICES.txt'}
+
+          for archive in archives:
+              with ZipFile(archive) as zipped:
+                  names = {Path(name).name for name in zipped.namelist()}
+              missing = required_files - names
+              if missing:
+                  raise SystemExit(f"{archive} is missing required files: {sorted(missing)}")
+
+          print('All release archives include required license files.')
+          PY
 
       - name: Create release
         uses: softprops/action-gh-release@v2
