@@ -551,7 +551,7 @@ provides-extras = ["cli", "dev", "gui"]
 [package.metadata.requires-dev]
 dev = [
     { name = "mypy", specifier = ">=1.11.0" },
-    { name = "nuitka", specifier = ">=2.0.0" },
+    { name = "nuitka", specifier = ">=4.0.8" },
     { name = "pytest", specifier = ">=8.3.0" },
     { name = "pytest-cov", specifier = ">=5.0.0" },
     { name = "rich", specifier = ">=13.0.0" },

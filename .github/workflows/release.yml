@@ -48,25 +48,35 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get install -y patchelf ccache
 
+      - name: Generate native OS icons
+        shell: bash
+        run: |
+          uv run --with pillow python -c "from PIL import Image; img = Image.open('src/ultra_hdr_converter/ui/assets/icon.png'); img.save('src/ultra_hdr_converter/ui/assets/icon.ico'); img.save('src/ultra_hdr_converter/ui/assets/icon.icns')"
+
       - name: Build GUI bundle
         uses: Nuitka/Nuitka-Action@main
         with:
           nuitka-version: main
           script-name: src/ultra_hdr_converter/ui/gui.py
           mode: standalone
-          output-file: uhdr-gui
           windows-console-mode: disable
           enable-plugins: pyside6
           include-data-dir: src/ultra_hdr_converter/ui/assets=ultra_hdr_converter/ui/assets
           include-package: imagecodecs
           output-dir: dist
-          windows-icon-from-ico: src/ultra_hdr_converter/ui/assets/icon.png
-          macos-app-icon: src/ultra_hdr_converter/ui/assets/icon.png
+          windows-icon-from-ico: src/ultra_hdr_converter/ui/assets/icon.ico
+          macos-app-icon: src/ultra_hdr_converter/ui/assets/icon.icns
           linux-icon: src/ultra_hdr_converter/ui/assets/icon.png
 
       - name: Rename output
         shell: bash
-        run: mv dist/gui.dist dist/uhdr-gui
+        run: |
+          mv dist/gui.dist dist/uhdr-gui
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            mv dist/uhdr-gui/gui.exe dist/uhdr-gui/uhdr-gui.exe
+          else
+            mv dist/uhdr-gui/gui dist/uhdr-gui/uhdr-gui
+          fi
 
       - name: Attach license files to bundle (Unix)
         if: runner.os != 'Windows'
