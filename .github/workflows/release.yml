@@ -58,7 +58,8 @@ jobs:
         with:
           nuitka-version: main
           script-name: src/ultra_hdr_converter/ui/gui.py
-          mode: standalone
+          mode: app-dist
+          output-file: uhdr-gui
           windows-console-mode: disable
           enable-plugins: pyside6
           include-data-dir: src/ultra_hdr_converter/ui/assets=ultra_hdr_converter/ui/assets
@@ -67,22 +68,35 @@ jobs:
           windows-icon-from-ico: src/ultra_hdr_converter/ui/assets/icon.ico
           macos-app-icon: src/ultra_hdr_converter/ui/assets/icon.icns
           linux-icon: src/ultra_hdr_converter/ui/assets/icon.png
+          macos-sign-identity: ad-hoc
+          macos-signed-app-name: com.ultrahdr.converter
 
       - name: Rename output
         shell: bash
         run: |
-          mv dist/gui.dist dist/uhdr-gui
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            mv dist/uhdr-gui/gui.exe dist/uhdr-gui/uhdr-gui.exe
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            APP_BUNDLE=$(find dist -maxdepth 2 -name "*.app" | head -n 1)
+            if [ -n "$APP_BUNDLE" ] && [ "$APP_BUNDLE" != "dist/uhdr-gui.app" ]; then
+              mv "$APP_BUNDLE" dist/uhdr-gui.app
+            fi
+            rm -rf dist/gui.dist
           else
-            mv dist/uhdr-gui/gui dist/uhdr-gui/uhdr-gui
+            mv dist/gui.dist dist/uhdr-gui
+            if [ -f "dist/uhdr-gui/uhdr-gui.bin" ]; then
+              mv dist/uhdr-gui/uhdr-gui.bin dist/uhdr-gui/uhdr-gui
+            fi
           fi
 
       - name: Attach license files to bundle (Unix)
         if: runner.os != 'Windows'
         run: |
-          cp LICENSE dist/uhdr-gui/LICENSE
-          cp THIRD_PARTY_NOTICES.txt dist/uhdr-gui/THIRD_PARTY_NOTICES.txt
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            cp LICENSE dist/LICENSE
+            cp THIRD_PARTY_NOTICES.txt dist/THIRD_PARTY_NOTICES.txt
+          else
+            cp LICENSE dist/uhdr-gui/LICENSE
+            cp THIRD_PARTY_NOTICES.txt dist/uhdr-gui/THIRD_PARTY_NOTICES.txt
+          fi
 
       - name: Attach license files to bundle (Windows)
         if: runner.os == 'Windows'
@@ -93,7 +107,12 @@ jobs:
 
       - name: Package bundle (Unix)
         if: runner.os != 'Windows'
-        run: zip -r uhdr-gui-${{ matrix.asset_name }}.zip dist/uhdr-gui
+        run: |
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            zip -r uhdr-gui-${{ matrix.asset_name }}.zip dist/uhdr-gui.app dist/LICENSE dist/THIRD_PARTY_NOTICES.txt
+          else
+            zip -r uhdr-gui-${{ matrix.asset_name }}.zip dist/uhdr-gui
+          fi
 
       - name: Package bundle (Windows)
         if: runner.os == 'Windows'

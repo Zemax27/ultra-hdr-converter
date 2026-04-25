@@ -166,10 +166,13 @@ uv build
 
 # Build standalone GUI bundle (local test)
 uv run python -m nuitka --standalone --output-filename=uhdr-gui --windows-console-mode=disable `
+    --macos-create-app-bundle --macos-app-mode=gui `
+    --macos-sign-identity=ad-hoc --macos-signed-app-name=com.ultrahdr.converter `
     --enable-plugin=pyside6 `
     --include-data-dir="src/ultra_hdr_converter/ui/assets=ultra_hdr_converter/ui/assets" `
     --include-package=imagecodecs `
     src/ultra_hdr_converter/ui/gui.py
+# On Windows/Linux, the bundle is generated in `gui.dist/`. On macOS, it creates `uhdr-gui.app`.
 ```
 
 ## Architecture
