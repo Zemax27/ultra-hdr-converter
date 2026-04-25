@@ -164,15 +164,15 @@ uv run pytest
 # Build distributable wheel
 uv build
 
-# Build single-file GUI executable (local test)
-uv run python -m nuitka --onefile --output-filename=uhdr-gui --windows-console-mode=disable `
+# Build standalone GUI bundle (local test)
+uv run python -m nuitka --standalone --output-filename=uhdr-gui --windows-console-mode=disable `
     --macos-create-app-bundle --macos-app-mode=gui `
     --macos-sign-identity=ad-hoc --macos-signed-app-name=com.ultrahdr.converter `
     --enable-plugin=pyside6 `
     --include-data-dir="src/ultra_hdr_converter/ui/assets=ultra_hdr_converter/ui/assets" `
     --include-package=imagecodecs `
     src/ultra_hdr_converter/ui/gui.py
-# On Windows/Linux, it generates a single `uhdr-gui.exe` (or `.bin`). On macOS, it creates `uhdr-gui.app`.
+# On Windows/Linux, the bundle is generated in `gui.dist/`. On macOS, it creates `uhdr-gui.app`.
 ```
 
 ## Architecture
