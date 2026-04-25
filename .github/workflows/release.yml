@@ -56,6 +56,26 @@ jobs:
             --add-data "src/ultra_hdr_converter/ui/assets:ultra_hdr_converter/ui/assets" \
             --hidden-import ultra_hdr_converter.ui.assets \
             --collect-all imagecodecs \
+            --exclude-module tkinter \
+            --exclude-module unittest \
+            --exclude-module pydoc \
+            --exclude-module PySide6.QtWebEngine \
+            --exclude-module PySide6.QtWebEngineCore \
+            --exclude-module PySide6.QtWebEngineWidgets \
+            --exclude-module PySide6.QtQml \
+            --exclude-module PySide6.QtQuick \
+            --exclude-module PySide6.QtNetwork \
+            --exclude-module PySide6.QtSql \
+            --exclude-module PySide6.QtTest \
+            --exclude-module PySide6.QtBluetooth \
+            --exclude-module PySide6.QtMultimedia \
+            --exclude-module PySide6.QtMultimediaWidgets \
+            --exclude-module PySide6.QtSensors \
+            --exclude-module PySide6.QtPositioning \
+            --exclude-module PySide6.QtWebChannel \
+            --exclude-module PySide6.QtWebSockets \
+            --exclude-module PySide6.Qt3DCore \
+            --exclude-module PySide6.Qt3DRender \
             --distpath dist \
             --workpath build \
             --clean \

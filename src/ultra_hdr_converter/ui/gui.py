@@ -19,9 +19,9 @@ from ultra_hdr_converter.ui._gui_style import C_TEXT_DIM, STATUS_COLORS, STYLESH
 _PROGRESS_THROTTLE_SECONDS: float = 0.05
 
 try:
-    from PySide6.QtCore import QThread, Signal, Slot
-    from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QIcon
-    from PySide6.QtWidgets import (
+    from PySide6.QtCore import QThread, Signal, Slot  # type: ignore[import-not-found]
+    from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QIcon  # type: ignore[import-not-found]
+    from PySide6.QtWidgets import (  # type: ignore[import-not-found]
         QAbstractItemView,
         QApplication,
         QFileDialog,
@@ -67,7 +67,7 @@ if HAS_PYSIDE:
 
     ProgressCallbackType = Callable[[str, int, int], None]
 
-    class WorkerThread(QThread):
+    class WorkerThread(QThread):  # type: ignore[misc]
         """Background thread that converts a batch of JPEG files to Ultra HDR.
 
         Signals:
@@ -193,7 +193,7 @@ if HAS_PYSIDE:
 
     # ── Main window ────────────────────────────────────────────────────────────
 
-    class UltraHdrGui(QMainWindow):
+    class UltraHdrGui(QMainWindow):  # type: ignore[misc]
         """Premium dark-themed desktop application for batch Ultra HDR conversion."""
 
         def __init__(self) -> None:
@@ -524,24 +524,24 @@ if HAS_PYSIDE:
 
         # ── Signal slots ───────────────────────────────────────────────────────
 
-        @Slot(str, float)
+        @Slot(str, float)  # type: ignore[untyped-decorator, misc]
         def _on_progress(self, msg: str, val: float) -> None:
             self.progress_bar.setValue(int(val * 1000))
             self.lbl_pct.setText(f"{int(val * 100)}%")
             self.lbl_status.setText(msg)
 
-        @Slot(str)
+        @Slot(str)  # type: ignore[untyped-decorator, misc]
         def _on_log(self, msg: str) -> None:
             self.log_text.append(msg)
 
-        @Slot(int, str)
+        @Slot(int, str)  # type: ignore[untyped-decorator, misc]
         def _on_status_update(self, row: int, status: str) -> None:
             self._set_status_item(row, status)
             item = self.table.item(row, 0)
             if item is not None:
                 self.table.scrollToItem(item)
 
-        @Slot(int, int)
+        @Slot(int, int)  # type: ignore[untyped-decorator, misc]
         def _on_finished(self, successes: int, failures: int) -> None:
             self.btn_start.setEnabled(True)
             self.btn_cancel.setEnabled(False)

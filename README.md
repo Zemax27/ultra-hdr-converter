@@ -169,6 +169,13 @@ uv run pyinstaller --onedir --name uhdr-gui --windowed `
     --add-data "src/ultra_hdr_converter/ui/assets:ultra_hdr_converter/ui/assets" `
     --hidden-import ultra_hdr_converter.ui.assets `
     --collect-all imagecodecs `
+    --exclude-module tkinter `
+    --exclude-module unittest `
+    --exclude-module PySide6.QtWebEngine `
+    --exclude-module PySide6.QtWebEngineCore `
+    --exclude-module PySide6.QtQml `
+    --exclude-module PySide6.QtQuick `
+    --exclude-module PySide6.QtNetwork `
     src/ultra_hdr_converter/ui/gui.py
 ```
 
