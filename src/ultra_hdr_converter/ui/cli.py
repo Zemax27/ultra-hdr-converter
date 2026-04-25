@@ -29,6 +29,7 @@ except ImportError:
 
 from ultra_hdr_converter.core.converter import ConversionResult, convert_jpeg_to_ultrahdr
 from ultra_hdr_converter.core.gain_map import GainMapConfig
+from ultra_hdr_converter.errors import AlreadyUltraHDRError
 
 JPEG_SUFFIXES = {".jpg", ".jpeg"}
 DEFAULT_OUTPUT_SUFFIX = "_ultrahdr.jpg"
@@ -95,7 +96,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--max-boost-factor",
         type=float,
         default=3.0,
-        help="Maximum HDR multiplier for the brightest pixels.",
+        help="Maximum HDR multiplier (in stops) for the brightest pixels.",
     )
     parser.add_argument(
         "--jpeg-quality",
@@ -284,10 +285,11 @@ def _run_jobs(
     gain_map_config: GainMapConfig,
     jpeg_quality: int,
     external_boost: float,
-) -> tuple[list[ConversionResult], list[tuple[ConversionJob, Exception]]]:
+) -> tuple[list[ConversionResult], list[tuple[ConversionJob, Exception]], list[tuple[ConversionJob, Exception]]]:
     """Execute conversion jobs with Rich progress reporting."""
     successes: list[ConversionResult] = []
     failures: list[tuple[ConversionJob, Exception]] = []
+    skipped: list[tuple[ConversionJob, Exception]] = []
 
     with Progress(
         SpinnerColumn(),
@@ -320,6 +322,9 @@ def _run_jobs(
                     jpeg_quality=jpeg_quality,
                     max_content_boost=external_boost if gain_map_path is not None else None,
                 )
+            except AlreadyUltraHDRError as exc:
+                skipped.append((job, exc))
+                progress.console.print(f"[yellow]Skipped[/yellow] {job.input_path}: Already an Ultra HDR image.")
             except Exception as exc:  # pragma: no cover - exercised by CLI usage
                 failures.append((job, exc))
             else:
@@ -328,13 +333,14 @@ def _run_jobs(
                 progress.update(batch_task, advance=1)
                 progress.remove_task(file_task)
 
-    return successes, failures
+    return successes, failures, skipped
 
 
 def _print_results(
     console: Console,
     successes: Sequence[ConversionResult],
     failures: Sequence[tuple[ConversionJob, Exception]],
+    skipped: Sequence[tuple[ConversionJob, Exception]],
     is_batch_mode: bool,
 ) -> None:
     """Render a compact post-run summary."""
@@ -351,7 +357,7 @@ def _print_results(
     for job, exc in failures:
         console.print(f"[bold red]Failed[/bold red] {job.input_path}: {exc}")
 
-    console.print(f"Completed conversions: {len(successes)} succeeded, {len(failures)} failed.")
+    console.print(f"Completed batch: {len(successes)} succeeded, {len(failures)} failed, {len(skipped)} skipped.")
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -368,11 +374,11 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     jobs = _build_jobs(parser, args)
     gain_map_config = _build_gain_map_config(args)
-    successes, failures = _run_jobs(
+    successes, failures, skipped = _run_jobs(
         console, jobs, args.gain_map, gain_map_config, args.jpeg_quality, args.max_boost_factor
     )
 
-    _print_results(console, successes, failures, is_batch_mode=args.batch_inputs is not None)
+    _print_results(console, successes, failures, skipped, is_batch_mode=args.batch_inputs is not None)
     if failures:
         raise SystemExit(1)
 

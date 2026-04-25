@@ -12,10 +12,11 @@
 ### Phase A: Decode and Linearize via ICC
 
 1. Read JPEG bytes.
-2. Decode SDR raster with `imagecodecs.jpeg_decode`.
-3. Parse JPEG metadata with `imagecodecs.jpeg_metadata` and extract `icc_profile`.
-4. Build CMS source and linear destination profiles with `imagecodecs.cms_profile`.
-5. Convert to linear light with `imagecodecs.cms_transform` (default `float32`).
+2. Check for existing Ultra HDR or ISO 21496-1 metadata. If present, skip processing by raising `AlreadyUltraHDRError`.
+3. Decode SDR raster with `imagecodecs.jpeg_decode`.
+4. Parse JPEG metadata with `imagecodecs.jpeg_metadata` and extract `icc_profile`.
+5. Build CMS source and linear destination profiles with `imagecodecs.cms_profile`.
+6. Convert to linear light with `imagecodecs.cms_transform` (default `float32`).
 
 Fallback behavior:
 
@@ -23,7 +24,7 @@ Fallback behavior:
 
 ### Phase B: Encode Ultra HDR with Gain Map
 
-1. Load a user-provided gain map (`.npy` or standard image), or generate one from linear luminance.
+1. Load a user-provided gain map (`.npy` or standard image), extract an embedded MPF gain map from the input file, or generate one from linear luminance.
 2. When generating, the SDR image is downsampled to half resolution (stride-2 subsampling) before computing CIE Y luminance and the gain map, reducing pixel count by 4x.
 3. Gain map generation uses highlight-targeted inverse tone mapping:
 	- Smoothstep mask isolates highlights above a configurable threshold.
@@ -83,6 +84,7 @@ The pipeline also accepts an optional coarse-grained progress callback used by t
 
 - All library errors derive from `UltraHdrError` (defined in `errors.py`), giving callers a single base to catch.
 - `GainMapError` and its subclasses (`GainMapDimensionError`, `GainMapConfigError`, `GainMapShapeMismatchError`) cover gain map validation failures with actionable messages.
+- `AlreadyUltraHDRError` is raised early if the input image is already an Ultra HDR file, enabling batch tools to skip it gracefully.
 - `ColorTransformError` covers ICC profile or CMS transform failures.
 - `JpegStructureError` covers malformed or incomplete JPEG byte streams.
 - Inputs are validated early; errors are raised with descriptive messages before any heavy computation begins.

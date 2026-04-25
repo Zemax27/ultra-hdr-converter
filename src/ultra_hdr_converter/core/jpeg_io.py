@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import struct
 from pathlib import Path
 
 import imagecodecs
@@ -12,6 +13,7 @@ JPEG_MIN_BYTES = 4
 MARKER_PREFIX = 0xFF
 START_OF_SCAN_MARKER = 0xDA
 END_OF_IMAGE_MARKER = 0xD9
+APP1_MARKER = 0xE1
 APP2_MARKER = 0xE2
 MARKER_STUFFED_ZERO = 0x00
 MARKER_TEM = 0x01
@@ -168,3 +170,84 @@ def load_gain_map(path: Path | str) -> np.ndarray:
     if source.suffix.lower() == ".npy":
         return np.asarray(np.load(source))
     return np.asarray(imagecodecs.imread(str(source)))
+
+
+def has_ultrahdr_metadata(jpeg_bytes: bytes) -> bool:
+    """Check if the JPEG contains ISO 21496-1 or Adobe UltraHDR metadata."""
+    for marker, payload in _iter_jpeg_segments(jpeg_bytes):
+        if marker == APP2_MARKER:
+            if payload.startswith(b"urn:iso:std:iso:ts:21496:-1\x00"):
+                return True
+        elif marker == APP1_MARKER:
+            if payload.startswith(b"http://ns.adobe.com/xap/1.0/\x00"):
+                if b"hdrgm:" in payload or b"HDRCapacityMin" in payload or b"GainMapMin" in payload:
+                    return True
+    return False
+
+
+def extract_mpf_gain_map(jpeg_bytes: bytes) -> bytes | None:
+    """Extract the secondary image (gain map) from an MPF-encoded JPEG."""
+    mpf_id = b"MPF\x00"
+    
+    pos = 2
+    while pos + 3 < len(jpeg_bytes):
+        if jpeg_bytes[pos] != MARKER_PREFIX:
+            break
+        
+        start_pos = pos
+        marker_pos = _skip_marker_prefixes(jpeg_bytes, pos + 1)
+            
+        if marker_pos >= len(jpeg_bytes):
+            break
+            
+        marker = jpeg_bytes[marker_pos]
+        if _is_standalone_marker(marker) or marker in {START_OF_SCAN_MARKER, END_OF_IMAGE_MARKER}:
+            pos = marker_pos + 1
+            continue
+            
+        if marker_pos + 2 >= len(jpeg_bytes):
+            break
+            
+        seg_length = int.from_bytes(jpeg_bytes[marker_pos + 1 : marker_pos + 3], "big")
+        seg_end = marker_pos + 1 + seg_length
+        
+        if marker == APP2_MARKER:
+            if jpeg_bytes[marker_pos + 3 : marker_pos + 3 + len(mpf_id)] == mpf_id:
+                tiff_header_offset = marker_pos + 3 + len(mpf_id)
+                tiff_header = jpeg_bytes[tiff_header_offset:seg_end]
+                
+                if len(tiff_header) < 8:
+                    pos = seg_end
+                    continue
+                    
+                endian = "<" if tiff_header[:2] == b"II" else ">"
+                first_ifd_offset = int.from_bytes(tiff_header[4:8], "little" if endian == "<" else "big")
+                
+                if first_ifd_offset + 2 > len(tiff_header):
+                    pos = seg_end
+                    continue
+                    
+                entry_count = int.from_bytes(tiff_header[first_ifd_offset:first_ifd_offset+2], "little" if endian == "<" else "big")
+                
+                pos_ifd = first_ifd_offset + 2
+                mp_entry_data_offset = None
+                for _ in range(entry_count):
+                    if pos_ifd + 12 > len(tiff_header):
+                        break
+                    tag = struct.unpack(endian + "H", tiff_header[pos_ifd:pos_ifd+2])[0]
+                    if tag == 0xB002:  # MPEntry
+                        mp_entry_data_offset = struct.unpack(endian + "I", tiff_header[pos_ifd+8:pos_ifd+12])[0]
+                        break
+                    pos_ifd += 12
+                    
+                if mp_entry_data_offset is not None:
+                    entry2_pos = mp_entry_data_offset + 16
+                    if entry2_pos + 16 <= len(tiff_header):
+                        size, data_offset = struct.unpack(endian + "II", tiff_header[entry2_pos+4:entry2_pos+12])
+                        absolute_offset = tiff_header_offset + data_offset
+                        if absolute_offset + size <= len(jpeg_bytes):
+                            return jpeg_bytes[absolute_offset:absolute_offset+size]
+        
+        pos = seg_end
+        
+    return None

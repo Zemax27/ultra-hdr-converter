@@ -5,6 +5,10 @@ class UltraHdrError(Exception):
     """Base exception for all Ultra HDR conversion errors."""
 
 
+class AlreadyUltraHDRError(UltraHdrError):
+    """Image already contains Ultra HDR metadata."""
+
+
 class GainMapError(UltraHdrError):
     """Base exception for gain map validation and generation errors."""
 

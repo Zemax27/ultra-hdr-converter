@@ -10,6 +10,7 @@ from pathlib import Path
 
 from ultra_hdr_converter.core.converter import convert_jpeg_to_ultrahdr
 from ultra_hdr_converter.core.gain_map import GainMapConfig
+from ultra_hdr_converter.errors import AlreadyUltraHDRError
 from ultra_hdr_converter.ui._gui_style import C_TEXT_DIM, STATUS_COLORS, STYLESHEET
 
 # Minimum seconds between progress signal emissions to avoid flooding the UI event loop.
@@ -147,6 +148,9 @@ if HAS_PYSIDE:
                     successes += 1
                     self.status_update.emit(index, "OK")
                     self.log.emit(f"[{input_path.name}] Wrote {output_path}")
+                except AlreadyUltraHDRError:
+                    self.status_update.emit(index, "Skipped")
+                    self.log.emit(f"[{input_path.name}] Skipped: Already an Ultra HDR image.")
                 except Exception as exc:
                     if self.is_cancelled and str(exc) == "Cancelled":
                         self.status_update.emit(index, "Cancelled")

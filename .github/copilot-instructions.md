@@ -50,7 +50,7 @@
 - Avoid unnecessary data copies; be explicit about conversions.
 
 ## Testing (pytest or repo default)
-- Update or add tests for behavior changes.
+- Update or add tests for behavior changes. Make sure the files are stored in the tests/ folder.
 - Include: happy path, edge case, and failure case for public functions.
 - Mock external I/O (filesystem/network/subprocess). Do not mock pure logic.
 

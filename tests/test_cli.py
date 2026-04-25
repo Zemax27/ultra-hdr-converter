@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from ultra_hdr_converter.ui import cli
+from ultra_hdr_converter.errors import AlreadyUltraHDRError
 
 
 def test_build_jobs_preserves_single_file_mode(tmp_path: Path) -> None:
@@ -48,3 +49,25 @@ def test_build_jobs_collects_batch_inputs_in_sorted_order(tmp_path: Path) -> Non
         cli.ConversionJob(input_path=second, output_path=out_dir / "a_ultrahdr.jpg"),
         cli.ConversionJob(input_path=first, output_path=out_dir / "b_ultrahdr.jpg"),
     ]
+
+
+def test_run_jobs_reports_skipped(monkeypatch: object, tmp_path: Path) -> None:
+    from rich.console import Console
+    
+    input_file = tmp_path / "input.jpg"
+    job = cli.ConversionJob(input_path=input_file, output_path=tmp_path / "out.jpg")
+    
+    def _mock_convert(*args, **kwargs):
+        raise AlreadyUltraHDRError("Already HDR")
+        
+    monkeypatch.setattr(cli, "convert_jpeg_to_ultrahdr", _mock_convert)
+    
+    successes, failures, skipped = cli._run_jobs(
+        Console(), [job], None, cli.GainMapConfig(), 95, 3.0
+    )
+    
+    assert len(successes) == 0
+    assert len(failures) == 0
+    assert len(skipped) == 1
+    assert skipped[0][0] == job
+    assert isinstance(skipped[0][1], AlreadyUltraHDRError)

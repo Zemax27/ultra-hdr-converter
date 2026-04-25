@@ -1,8 +1,8 @@
 # Ultra HDR Converter
 
-Convert standard JPEG photos into **Ultra HDR JPEG** files that display with expanded brightness and vivid highlights on HDR-capable screens (iPhone, iPad, modern Android, HDR monitors), while remaining fully compatible with all existing SDR devices.
+Convert standard JPEG photos into **Ultra HDR JPEG** files—fully compatible with the **ISO 21496-1** gain map standard that display with expanded brightness and vivid highlights on HDR-capable screens (iPhone, iPad, modern Android, HDR monitors), while remaining fully compatible with all existing SDR devices.
 
-The tool works from a single SDR JPEG — no HDR camera required. It automatically synthesises a gain map that encodes the highlight information needed for HDR playback.
+The tool works from a single SDR JPEG (no HDR camera required). It automatically synthesises a gain map that encodes the highlight information needed for HDR playback.
 
 ## Requirements
 
@@ -51,13 +51,17 @@ uv run uhdr-convert --batch-inputs photo1.jpg photo2.jpg photo3.jpg --out-dir co
 
 Each output is saved as `<original_name>_ultrahdr.jpg` inside `--out-dir`. If `--out-dir` is omitted the converted files are written beside the originals.
 
-### Use an external gain map
+### Use an external or embedded gain map
 
 If you have a pre-computed gain map (`.npy` or any image file) you can supply it directly and skip auto-generation:
 
 ```powershell
 uv run uhdr-convert input.jpg output_ultrahdr.jpg --gain-map gain_map.png
 ```
+
+Alternatively, if your input file already contains an embedded gain map in Multi-Picture Format (MPF) but lacks the required ISO 21496-1 or Adobe XMP metadata, the pipeline will automatically extract and use that embedded map to encode the final Ultra HDR image.
+
+> **Note**: If you run `uhdr-convert` on a file that is *already* fully encoded as Ultra HDR or ISO 21496-1, the tool will inform you and gracefully skip the file.
 
 ### Desktop GUI
 
@@ -115,12 +119,12 @@ result = convert_jpeg_to_ultrahdr(
 
 # result.output_path   — Path to the written file
 # result.has_icc       — True if an ICC colour profile was embedded
-# result.gain_map_source — "generated" or "external"
+# result.gain_map_source — "generated", "external", or "embedded"
 ```
 
 ## How the Gain Map Works
 
-The built-in generator uses a highlight-targeted inverse tone-mapping approach:
+The built-in generator follows the **ISO 21496-1** and Adobe Ultra HDR specifications using a highlight-targeted inverse tone-mapping approach:
 
 1. **Soft Highlight Isolation** — A smoothstep mask isolates compressed highlights (skies, light sources, reflections) while leaving midtones and shadows untouched.
 2. **Non-Linear Highlight Expansion** — An exponential curve stretches masked highlights to synthesise an HDR luminance signal.
