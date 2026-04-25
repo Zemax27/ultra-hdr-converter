@@ -61,7 +61,7 @@ jobs:
         with:
           nuitka-version: main
           script-name: src/ultra_hdr_converter/ui/gui.py
-          mode: app-dist
+          mode: app
           output-file: uhdr-gui
           windows-console-mode: disable
           enable-plugins: pyside6
@@ -74,53 +74,35 @@ jobs:
           macos-sign-identity: ad-hoc
           macos-signed-app-name: com.ultrahdr.converter
 
-      - name: Rename output
+      - name: Prepare packaging directory
         shell: bash
         run: |
+          mkdir -p dist-package
+          
           if [ "${{ runner.os }}" = "macOS" ]; then
             APP_BUNDLE=$(find dist -maxdepth 2 -name "*.app" | head -n 1)
-            if [ -n "$APP_BUNDLE" ] && [ "$APP_BUNDLE" != "dist/uhdr-gui.app" ]; then
-              mv "$APP_BUNDLE" dist/uhdr-gui.app
-            fi
-            rm -rf dist/gui.dist
+            mv "$APP_BUNDLE" dist-package/uhdr-gui.app
+          elif [ "${{ runner.os }}" = "Windows" ]; then
+            EXE_FILE=$(find dist -maxdepth 1 -name "*.exe" | head -n 1)
+            mv "$EXE_FILE" dist-package/uhdr-gui.exe
           else
-            mv dist/gui.dist dist/uhdr-gui
-            if [ -f "dist/uhdr-gui/uhdr-gui.bin" ]; then
-              mv dist/uhdr-gui/uhdr-gui.bin dist/uhdr-gui/uhdr-gui
-            fi
+            BIN_FILE=$(find dist -maxdepth 1 -name "*.bin" -o -name "uhdr-gui" -o -name "gui" | head -n 1)
+            mv "$BIN_FILE" dist-package/uhdr-gui
           fi
-
-      - name: Attach license files to bundle (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          if [ "${{ runner.os }}" = "macOS" ]; then
-            cp LICENSE dist/LICENSE
-            cp THIRD_PARTY_NOTICES.txt dist/THIRD_PARTY_NOTICES.txt
-          else
-            cp LICENSE dist/uhdr-gui/LICENSE
-            cp THIRD_PARTY_NOTICES.txt dist/uhdr-gui/THIRD_PARTY_NOTICES.txt
-          fi
-
-      - name: Attach license files to bundle (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          Copy-Item LICENSE dist/uhdr-gui/LICENSE -Force
-          Copy-Item THIRD_PARTY_NOTICES.txt dist/uhdr-gui/THIRD_PARTY_NOTICES.txt -Force
+          
+          cp LICENSE dist-package/LICENSE
+          cp THIRD_PARTY_NOTICES.txt dist-package/THIRD_PARTY_NOTICES.txt
 
       - name: Package bundle (Unix)
         if: runner.os != 'Windows'
         run: |
-          if [ "${{ runner.os }}" = "macOS" ]; then
-            zip -r uhdr-gui-${{ matrix.asset_name }}.zip dist/uhdr-gui.app dist/LICENSE dist/THIRD_PARTY_NOTICES.txt
-          else
-            zip -r uhdr-gui-${{ matrix.asset_name }}.zip dist/uhdr-gui
-          fi
+          cd dist-package
+          zip -r ../uhdr-gui-${{ matrix.asset_name }}.zip ./*
 
       - name: Package bundle (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path dist/uhdr-gui -DestinationPath uhdr-gui-${{ matrix.asset_name }}.zip
+        run: Compress-Archive -Path dist-package\* -DestinationPath uhdr-gui-${{ matrix.asset_name }}.zip
 
       - name: Upload packaged bundle
         uses: actions/upload-artifact@v4
