@@ -17,14 +17,14 @@ from ultra_hdr_converter.core.gain_map import (
 from ultra_hdr_converter.core.jpeg_io import (
     decode_jpeg,
     extract_icc_profile,
+    extract_mpf_gain_map,
+    has_ultrahdr_metadata,
     load_gain_map,
     read_bytes,
     write_bytes,
-    has_ultrahdr_metadata,
-    extract_mpf_gain_map,
 )
 from ultra_hdr_converter.core.ultrahdr_encoder import encode_ultrahdr
-from ultra_hdr_converter.errors import GainMapShapeMismatchError, AlreadyUltraHDRError
+from ultra_hdr_converter.errors import AlreadyUltraHDRError, GainMapShapeMismatchError
 
 ProgressCallback = Callable[[str, int, int], None]
 PROGRESS_STEP_COUNT = 5

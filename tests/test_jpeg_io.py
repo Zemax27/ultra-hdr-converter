@@ -1,6 +1,6 @@
 import imagecodecs
 
-from ultra_hdr_converter.core.jpeg_io import extract_icc_profile, has_ultrahdr_metadata, extract_mpf_gain_map
+from ultra_hdr_converter.core.jpeg_io import extract_icc_profile, extract_mpf_gain_map, has_ultrahdr_metadata
 
 
 def _make_app2_segment(payload: bytes) -> bytes:

@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from ultra_hdr_converter.core.converter import convert_jpeg_to_ultrahdr
-from ultra_hdr_converter.errors import GainMapShapeMismatchError, AlreadyUltraHDRError
+from ultra_hdr_converter.errors import AlreadyUltraHDRError, GainMapShapeMismatchError
 
 
 def test_pipeline_uses_external_gain_map(monkeypatch: object, tmp_path: Path) -> None:

@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from ultra_hdr_converter.ui import cli
 from ultra_hdr_converter.errors import AlreadyUltraHDRError
+from ultra_hdr_converter.ui import cli
 
 
 def test_build_jobs_preserves_single_file_mode(tmp_path: Path) -> None:
