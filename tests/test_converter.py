@@ -182,7 +182,7 @@ def test_pipeline_uses_embedded_mpf_gain_map(monkeypatch: object, tmp_path: Path
     monkeypatch.setattr("ultra_hdr_converter.core.converter.read_bytes", lambda _: b"jpeg")
     monkeypatch.setattr("ultra_hdr_converter.core.converter.has_ultrahdr_metadata", lambda _: False)
     monkeypatch.setattr("ultra_hdr_converter.core.converter.extract_mpf_gain_map", lambda _: b"mpf_jpeg")
-    
+
     # decode_jpeg is called twice: once for SDR, once for MPF gain map.
     # We will just return the correctly shaped fake_gain for the second call.
     decode_calls = []
@@ -191,7 +191,7 @@ def test_pipeline_uses_embedded_mpf_gain_map(monkeypatch: object, tmp_path: Path
         if b == b"mpf_jpeg":
             return fake_gain
         return fake_sdr
-        
+
     monkeypatch.setattr("ultra_hdr_converter.core.converter.decode_jpeg", _mock_decode)
     monkeypatch.setattr("ultra_hdr_converter.core.converter.extract_icc_profile", lambda _: None)
     monkeypatch.setattr(
@@ -310,3 +310,27 @@ def test_pipeline_forwards_max_content_boost_for_embedded(monkeypatch: object, t
     )
 
     assert captured_kwargs[0]["max_content_boost"] == EXPECTED_EMBEDDED_BOOST
+
+
+def test_validation_jpeg_quality_out_of_range() -> None:
+    """jpeg_quality must be between 0 and 100 inclusive."""
+    with pytest.raises(ValueError, match="jpeg_quality must be between 0 and 100"):
+        convert_jpeg_to_ultrahdr("in.jpg", "out.jpg", jpeg_quality=101)
+    with pytest.raises(ValueError, match="jpeg_quality must be between 0 and 100"):
+        convert_jpeg_to_ultrahdr("in.jpg", "out.jpg", jpeg_quality=-1)
+
+
+def test_validation_max_content_boost_non_positive() -> None:
+    """max_content_boost must be positive when provided."""
+    with pytest.raises(ValueError, match="max_content_boost must be positive"):
+        convert_jpeg_to_ultrahdr("in.jpg", "out.jpg", max_content_boost=0)
+    with pytest.raises(ValueError, match="max_content_boost must be positive"):
+        convert_jpeg_to_ultrahdr("in.jpg", "out.jpg", max_content_boost=-2.5)
+
+
+def test_validation_same_input_output_path(tmp_path: Path) -> None:
+    """Input and output cannot be the same file."""
+    same = tmp_path / "photo.jpg"
+    # No need to create the file; validation occurs before I/O
+    with pytest.raises(ValueError, match="cannot be the same file"):
+        convert_jpeg_to_ultrahdr(same, same)

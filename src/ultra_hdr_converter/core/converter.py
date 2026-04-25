@@ -29,6 +29,7 @@ from ultra_hdr_converter.errors import AlreadyUltraHDRError, GainMapShapeMismatc
 
 ProgressCallback = Callable[[str, int, int], None]
 PROGRESS_STEP_COUNT = 5
+JPEG_QUALITY_RANGE = (0, 100)
 
 
 @dataclass(frozen=True)
@@ -104,7 +105,23 @@ def convert_jpeg_to_ultrahdr(
         AlreadyUltraHDRError: If the input already contains Ultra HDR metadata.
         GainMapShapeMismatchError: If an external gain map's spatial dimensions
             do not match the SDR base image.
+        ValueError: If jpeg_quality is not in 0-100, if max_content_boost is
+            non-positive, or if input_jpeg and output_jpeg refer to the same file.
     """
+    # Validate parameters early to fail fast
+    if not JPEG_QUALITY_RANGE[0] <= jpeg_quality <= JPEG_QUALITY_RANGE[1]:
+        raise ValueError(
+            f"jpeg_quality must be between {JPEG_QUALITY_RANGE[0]} and {JPEG_QUALITY_RANGE[1]}, got {jpeg_quality}"
+        )
+    if max_content_boost is not None and max_content_boost <= 0:
+        raise ValueError(f"max_content_boost must be positive, got {max_content_boost}")
+
+    # Prevent accidental overwrite of input file
+    input_path = Path(input_jpeg).resolve()
+    output_path = Path(output_jpeg).resolve()
+    if input_path == output_path:
+        raise ValueError("Input and output cannot be the same file.")
+
     _notify_progress(progress_callback, "Reading and decoding input JPEG", 1)
     input_bytes = read_bytes(input_jpeg)
     
@@ -120,7 +137,6 @@ def convert_jpeg_to_ultrahdr(
         _validate_gain_map_shape(gain_map, sdr_base.shape)
         gain_map_source = "external"
         _notify_progress(progress_callback, "Skipping gain map generation", 3)
-        actual_boost = max_content_boost if max_content_boost is not None else 3.0
     else:
         mpf_bytes = extract_mpf_gain_map(input_bytes)
         if mpf_bytes is not None:
@@ -129,7 +145,6 @@ def convert_jpeg_to_ultrahdr(
             _validate_gain_map_shape(gain_map, sdr_base.shape)
             gain_map_source = "embedded"
             _notify_progress(progress_callback, "Skipping gain map generation", 3)
-            actual_boost = max_content_boost if max_content_boost is not None else 3.0
         else:
             _notify_progress(progress_callback, "Extracting luminance from SDR", 2)
             sdr_half = sdr_base[::2, ::2]
@@ -138,9 +153,14 @@ def convert_jpeg_to_ultrahdr(
             gain_map = generate_gain_map(luminance, config=gain_map_config)
             gain_map = validate_gain_map(gain_map)
             gain_map_source = "generated"
-            actual_boost = (
-                gain_map_config.max_boost_factor if gain_map_config is not None else GainMapConfig().max_boost_factor
-            )
+
+    # Determine actual boost factor based on gain map source
+    if gain_map_source in ("external", "embedded"):
+        actual_boost = max_content_boost if max_content_boost is not None else 3.0
+    else:  # generated
+        actual_boost = (
+            gain_map_config.max_boost_factor if gain_map_config is not None else GainMapConfig().max_boost_factor
+        )
 
     _notify_progress(progress_callback, "Encoding Ultra HDR metadata and container", 4)
     ultrahdr_bytes = encode_ultrahdr(

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import lru_cache
 
 import numpy as np
 from numpy.typing import NDArray
@@ -223,12 +222,6 @@ def _validate_config(cfg: GainMapConfig) -> None:
         raise GainMapConfigError("bloom_weight must be in the range [0.0, 1.0].")
 
 
-@lru_cache(maxsize=16)
-def _cached_validate_config(cfg: GainMapConfig) -> None:
-    """Cached validation for frozen GainMapConfig dataclass instances."""
-    _validate_config(cfg)
-
-
 def generate_gain_map(
     luminance: np.ndarray,
     config: GainMapConfig | None = None,
@@ -251,7 +244,7 @@ def generate_gain_map(
         GainMapConfigError: If any configuration parameter is out of range.
     """
     cfg = config or GainMapConfig()
-    _cached_validate_config(cfg)
+    _validate_config(cfg)
 
     luma = np.asarray(luminance, dtype=np.float32)
     if luma.ndim != GRAYSCALE_NDIM:

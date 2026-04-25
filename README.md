@@ -1,13 +1,13 @@
 # Ultra HDR Converter
 
-Convert standard JPEG photos into **Ultra HDR JPEG** files—fully compatible with the **ISO 21496-1** gain map standard that display with expanded brightness and vivid highlights on HDR-capable screens (iPhone, iPad, modern Android, HDR monitors), while remaining fully compatible with all existing SDR devices.
-
-The tool works from a single SDR JPEG (no HDR camera required). It automatically synthesises a gain map that encodes the highlight information needed for HDR playback.
+Convert standard JPEG photos into **Ultra HDR JPEG** files compliant with **ISO 21496-1**. These images display expanded brightness and vivid highlights on HDR-capable screens (iPhone, iPad, modern Android, HDR monitors) while remaining fully compatible with SDR devices. No HDR camera needed — the tool automatically synthesizes a gain map from a single SDR JPEG.
 
 ## Requirements
 
 - **Python 3.12+**
 - **[uv](https://docs.astral.sh/uv/getting-started/installation/)** — fast Python package manager
+
+For standalone GUI releases (no Python required), see [Releases](https://github.com/your-org/ultra-hdr-converter/releases).
 
 ## Installation
 
@@ -15,7 +15,7 @@ The tool works from a single SDR JPEG (no HDR camera required). It automatically
 git clone https://github.com/your-org/ultra-hdr-converter.git
 cd ultra-hdr-converter
 uv sync                     # core library only (programmatic API)
-uv sync --extra cli         # + CLI (uhdr-convert)
+uv sync --extra cli         # + CLI tool (uhdr-convert)
 uv sync --extra cli --extra gui  # + CLI and desktop GUI (uhdr-gui)
 ```
 
@@ -29,9 +29,7 @@ uv sync --extra cli --extra gui  # + CLI and desktop GUI (uhdr-gui)
 uv run uhdr-convert input.jpg output_ultrahdr.jpg
 ```
 
-The output file is a valid JPEG readable everywhere. On HDR displays it lights up; on SDR screens it looks identical to the original.
-
-If you omit the output path, the file is saved next to the input as `<name>_ultrahdr.jpg`:
+The output file is a valid JPEG readable everywhere. On HDR displays it lights up; on SDR screens it looks identical to the original. If you omit the output path, the file is saved beside the input as `<name>_ultrahdr.jpg`:
 
 ```powershell
 uv run uhdr-convert input.jpg
@@ -72,7 +70,7 @@ uv sync --extra cli --extra gui
 uv run uhdr-gui
 ```
 
-The GUI runs conversions on a background thread so the interface stays responsive, and shows live progress for each pipeline phase.
+The GUI runs conversions on a background thread so the interface stays responsive, and shows live progress for each pipeline phase. For a polished desktop experience, download the standalone executable from the [Releases](https://github.com/your-org/ultra-hdr-converter/releases) page.
 
 ## CLI Reference
 
@@ -98,110 +96,41 @@ The GUI runs conversions on a background thread so the interface stays responsiv
 - **Effect is too subtle** → raise `--max-boost-factor` and lower `--highlight-threshold`.
 - **Effect is too aggressive** → raise `--highlight-threshold` closer to `0.7`.
 
-## Programmatic Usage
+## Examples
 
-```python
-from ultra_hdr_converter import (
-    convert_jpeg_to_ultrahdr,
-    GainMapConfig,
-    AlreadyUltraHDRError
-)
+See the `examples/` directory for programmatic usage and custom workflows:
 
-try:
-    # Auto-generate gain map with custom tuning.
-    result = convert_jpeg_to_ultrahdr(
-        input_jpeg="input.jpg",
-        output_jpeg="output_ultrahdr.jpg",
-        gain_map_config=GainMapConfig(highlight_threshold=0.4, max_boost_factor=3.0),
-    )
-except AlreadyUltraHDRError as e:
-    print(f"Skipping: {e}")
+- [convert_with_custom_gainmap.py](examples/convert_with_custom_gainmap.py) — Using the Python API directly
 
-# Use an external gain map.
-result = convert_jpeg_to_ultrahdr(
-    input_jpeg="input.jpg",
-    output_jpeg="output_ultrahdr.jpg",
-    gain_map_path="gain_map.png",
-)
+## Troubleshooting
 
-# result.output_path   — Path to the written file
-# result.has_icc       — True if an ICC colour profile was embedded
-# result.gain_map_source — "generated", "external", or "embedded"
+**"imagecodecs cms extension is unavailable"**
+The installed `imagecodecs` package lacks CMS/UltraHDR support. This typically happens when a source build was attempted without required C libraries, or an incomplete wheel was installed.
+
+Fix by reinstalling the official PyPI wheel (includes both extensions):
+
+```bash
+# Using uv (recommended)
+uv sync --reinstall-package imagecodecs
+
+# Or explicitly via uv pip
+uv pip install --upgrade --force-reinstall imagecodecs
 ```
 
-## How the Gain Map Works
+If building from source is unavoidable (e.g., no wheel available for your platform), install system dependencies first. See the [imagecodecs documentation](https://github.com/cgohlke/imagecodecs/#using) for details. On Ubuntu/Debian:
 
-The built-in generator follows the **ISO 21496-1** and Adobe Ultra HDR specifications using a highlight-targeted inverse tone-mapping approach:
-
-1. **Soft Highlight Isolation** — A smoothstep mask isolates compressed highlights (skies, light sources, reflections) while leaving midtones and shadows untouched.
-2. **Non-Linear Highlight Expansion** — An exponential curve stretches masked highlights to synthesise an HDR luminance signal.
-3. **Logarithmic Gain Calculation** — The gain map is computed as the log₂ ratio between the synthetic HDR and original SDR luminance.
-4. **Edge-Aware Refinement** — A guided filter smooths the gain map using the SDR luminance as a guide, preventing halos along structural edges.
-5. **Aesthetic Bloom** — A subtle Gaussian blur blended into gain map peaks simulates natural light halation.
-
-## Performance
-
-- **Half-resolution gain map** — The image is downsampled to half resolution before gain map computation, reducing pixel work by 4×.
-- **In-place NumPy operations** — Array operations avoid unnecessary allocations throughout the pipeline.
-- **Integral-image box filter** — The guided filter uses a padded integral image for O(1)-per-pixel window means.
-- **OpenCV acceleration** — When `cv2` and `cv2.ximgproc` are available they are used for guided filtering and Gaussian blur. Only `numpy` and `imagecodecs` are required as core dependencies.
-
-## Development
-
-```powershell
-# Install all dev dependencies (includes Nuitka for bundling)
-uv sync --group dev --extra cli --extra gui
-
-# Lint
-uv run ruff check .
-
-# Type check
-uv run mypy src
-
-# Tests
-uv run pytest
-
-# Build distributable wheel
-uv build
-
-# Build standalone GUI bundle (local test)
-uv run python -m nuitka --standalone --output-filename=uhdr-gui --windows-console-mode=disable `
-    --macos-create-app-bundle --macos-app-mode=gui `
-    --macos-sign-identity=ad-hoc --macos-signed-app-name=com.ultrahdr.converter `
-    --enable-plugin=pyside6 `
-    --include-data-dir="src/ultra_hdr_converter/ui/assets=ultra_hdr_converter/ui/assets" `
-    --include-package=imagecodecs `
-    src/ultra_hdr_converter/ui/gui.py
-# On Windows/Linux, the bundle is generated in `gui.dist/`. On macOS, it creates `uhdr-gui.app`.
+```bash
+sudo apt install build-essential python3-dev cython3 python3-pip \
+  python3-setuptools python3-wheel python3-numpy libdeflate-dev libjpeg-dev \
+  libjxr-dev liblcms2-dev liblz4-dev liblerc-dev liblzma-dev \
+  libopenjp2-7-dev libpng-dev libtiff-dev libwebp-dev libz-dev libzstd-dev
 ```
 
-## Architecture
+**"File … is already an Ultra HDR image"**
+This is expected behavior when re-processing converted files. The tool skips these to avoid redundant work. Use a different output filename if you want to force a new conversion.
 
-The codebase follows a two-phase workflow:
-
-- **Phase A** — Decode and linearise the SDR JPEG through its embedded ICC profile using `imagecodecs.cms_*`.
-- **Phase B** — Generate a highlight-targeted gain map (at half resolution) and compose a standards-aligned Ultra HDR JPEG via API-4 (MPF container with XMP and ISO 21496-1 metadata).
-
-Full design details are in [docs/architecture.md](docs/architecture.md).
-
-```text
-src/ultra_hdr_converter/
-├── __init__.py               — Public API exports
-├── errors.py                 — Custom exception hierarchy
-├── core/                     — Image processing pipeline
-│   ├── converter.py          — Orchestration and ConversionResult
-│   ├── gain_map.py           — Gain map generation and validation
-│   ├── color.py              — Simple luminance channel extraction
-│   ├── color_cms.py          — ICC-aware linearisation and CIE Y extraction
-│   ├── ultrahdr_encoder.py   — Ultra HDR JPEG encoding (MPF + XMP + ISO)
-│   └── jpeg_io.py            — JPEG decode/encode and file I/O
-└── ui/                       — User interfaces
-    ├── cli.py                — Command line interface (uhdr-convert)
-    ├── gui.py                — Optional desktop GUI (uhdr-gui, requires PySide6)
-    ├── _gui_style.py         — GUI dark theme stylesheet
-    └── assets/
-        └── icon.png          — Bundled application icon
-```
+**GUI won't start / missing PySide6**
+Ensure you installed with GUI extras: `uv sync --extra cli --extra gui`. If running a standalone executable, download the latest release from the [Releases](https://github.com/your-org/ultra-hdr-converter/releases) page.
 
 ## License
 
@@ -210,6 +139,4 @@ This repository is licensed under the Apache License 2.0.
 - Full text: [LICENSE](LICENSE)
 - Dependency notices: [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt)
 
-Third-party libraries keep their own licenses. If you redistribute binaries
-(for example standalone executables), include applicable third-party notices
-and license files in your release assets.
+Third-party libraries keep their own licenses. If you redistribute binaries (for example standalone executables), include applicable third-party notices and license files in your release assets.

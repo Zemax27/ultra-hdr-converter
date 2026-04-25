@@ -9,6 +9,8 @@ from typing import Literal
 import imagecodecs
 import numpy as np
 
+from ultra_hdr_converter.errors import JpegStructureError
+
 JPEG_SOI = b"\xff\xd8"
 JPEG_MIN_BYTES = 4
 MARKER_PREFIX = 0xFF
@@ -46,7 +48,10 @@ def write_bytes(path: Path | str, data: bytes) -> None:
 
 def decode_jpeg(jpeg_bytes: bytes) -> np.ndarray:
     """Decode JPEG bytes into a NumPy array."""
-    return np.asarray(imagecodecs.jpeg_decode(jpeg_bytes))
+    try:
+        return np.asarray(imagecodecs.jpeg_decode(jpeg_bytes))
+    except Exception as exc:
+        raise JpegStructureError(f"JPEG decoding failed: {exc}") from exc
 
 
 def _skip_marker_prefixes(jpeg_bytes: bytes, offset: int) -> int:

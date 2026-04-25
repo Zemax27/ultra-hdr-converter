@@ -1,13 +1,16 @@
 import struct
 
 import imagecodecs
+import pytest
 
 from ultra_hdr_converter.core.jpeg_io import (
+    decode_jpeg,
     extract_icc_profile,
     extract_mpf_gain_map,
     has_mpf_secondary_image,
     has_ultrahdr_metadata,
 )
+from ultra_hdr_converter.errors import JpegStructureError
 
 
 def _make_app2_segment(payload: bytes) -> bytes:
@@ -300,3 +303,9 @@ def test_extract_mpf_gain_map_returns_secondary_image_legacy_format() -> None:
 
     extracted = extract_mpf_gain_map(jpeg_bytes)
     assert extracted == secondary_data
+
+
+def test_decode_jpeg_raises_structure_error_on_invalid_data() -> None:
+    """Invalid JPEG bytes should raise JpegStructureError."""
+    with pytest.raises(JpegStructureError, match="JPEG decoding failed"):
+        decode_jpeg(b"not a jpeg at all")
