@@ -42,9 +42,12 @@ The package exports a minimal surface for programmatic use:
 - `convert_jpeg_to_ultrahdr()` — end-to-end conversion (main entry point).
 - `ConversionResult` — dataclass with output path, ICC presence, gain map source.
 - `GainMapConfig` — configuration for the highlight-targeted generator.
+- `has_ultrahdr_metadata()` — detects if a file is already encoded with Ultra HDR.
+- `has_mpf_secondary_image()` — detects embedded MPF auxiliary images (gain maps).
 - `generate_gain_map()` — standalone gain map generation from luminance arrays.
 - `validate_gain_map()` — type/shape validation for external gain maps.
 - `linearize_from_icc()` — ICC-aware linearization for advanced users.
+- `AlreadyUltraHDRError` — raised when input is already fully Ultra HDR encoded.
 
 The pipeline also accepts an optional coarse-grained progress callback used by the CLI and GUI. Progress notifications are emitted only at major phase boundaries to avoid affecting the numeric hot path.
 

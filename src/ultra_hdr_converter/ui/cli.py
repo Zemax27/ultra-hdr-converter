@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Sequence
@@ -305,7 +306,7 @@ def _run_jobs(
             visible=len(jobs) > 1,
         )
 
-        for job in jobs:
+        def process_job(job: ConversionJob) -> tuple[ConversionJob, ConversionResult | None, Exception | None]:
             file_task = progress.add_task(
                 f"[green]{job.input_path.name}[/green]",
                 total=1,
@@ -322,16 +323,24 @@ def _run_jobs(
                     jpeg_quality=jpeg_quality,
                     max_content_boost=external_boost if gain_map_path is not None else None,
                 )
-            except AlreadyUltraHDRError as exc:
-                skipped.append((job, exc))
-                progress.console.print(f"[yellow]Skipped[/yellow] {job.input_path}: Already an Ultra HDR image.")
-            except Exception as exc:  # pragma: no cover - exercised by CLI usage
-                failures.append((job, exc))
-            else:
-                successes.append(result)
+                return job, result, None
+            except Exception as exc:
+                return job, None, exc
             finally:
                 progress.update(batch_task, advance=1)
                 progress.remove_task(file_task)
+
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            futures = [executor.submit(process_job, job) for job in jobs]
+            for future in concurrent.futures.as_completed(futures):
+                job, result, exc = future.result()
+                if isinstance(exc, AlreadyUltraHDRError):
+                    skipped.append((job, exc))
+                    progress.console.print(f"[yellow]Skipped[/yellow] {job.input_path}: Already an Ultra HDR image.")
+                elif exc is not None:
+                    failures.append((job, exc))
+                elif result is not None:
+                    successes.append(result)
 
     return successes, failures, skipped
 

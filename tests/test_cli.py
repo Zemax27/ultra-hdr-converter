@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from rich.console import Console
+
 from ultra_hdr_converter.errors import AlreadyUltraHDRError
 from ultra_hdr_converter.ui import cli
 
@@ -52,7 +54,6 @@ def test_build_jobs_collects_batch_inputs_in_sorted_order(tmp_path: Path) -> Non
 
 
 def test_run_jobs_reports_skipped(monkeypatch: object, tmp_path: Path) -> None:
-    from rich.console import Console
     
     input_file = tmp_path / "input.jpg"
     job = cli.ConversionJob(input_path=input_file, output_path=tmp_path / "out.jpg")

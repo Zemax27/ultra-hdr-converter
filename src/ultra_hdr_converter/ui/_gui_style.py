@@ -33,6 +33,7 @@ STATUS_COLORS: dict[str, str] = {
     "Failed": C_FAIL,
     "Processing": C_PROCESSING,
     "Queued": C_TEXT_DIM,
+    "Skipped": C_CANCELLED,
     "Cancelled": C_CANCELLED,
 }
 

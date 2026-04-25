@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import sys
 import time
 import warnings
 from importlib import resources
 from pathlib import Path
+from threading import Lock
 
 from ultra_hdr_converter.core.converter import convert_jpeg_to_ultrahdr
 from ultra_hdr_converter.core.gain_map import GainMapConfig
@@ -44,35 +46,6 @@ except ImportError:
     HAS_PYSIDE = False
 
 
-def _make_progress_callback(
-    worker: "WorkerThread",
-    index: int,
-    total_files: int,
-    file_name: str,
-) -> "ProgressCallbackType":
-    """Return a closure that captures index by value, avoiding late-binding bugs.
-
-    Args:
-        worker: The running WorkerThread instance.
-        index: Zero-based index of the current file in the batch (captured by value).
-        total_files: Total number of files in the batch.
-        file_name: Display name of the current file.
-
-    Returns:
-        A progress callback compatible with ``convert_jpeg_to_ultrahdr``.
-    """
-    last_update: list[float] = [0.0]
-
-    def _callback(message: str, step: int, total_steps: int) -> None:
-        if worker.is_cancelled:
-            raise RuntimeError("Cancelled")
-        now = time.monotonic()
-        if now - last_update[0] > _PROGRESS_THROTTLE_SECONDS or step == total_steps:
-            progress_value = (index + (step / total_steps)) / total_files
-            worker.progress.emit(f"[{file_name}] {message}", progress_value)
-            last_update[0] = now
-
-    return _callback
 
 
 # Keep the context manager alive for the whole process so any temp file is never
@@ -119,6 +92,53 @@ if HAS_PYSIDE:
             """Request cancellation. The worker stops after the current file."""
             self.is_cancelled = True
 
+        def _process_file(
+            self,
+            index: int,
+            input_path: Path,
+            total_files: int,
+            file_progress: list[float],
+            last_emit_time: list[float],
+            emit_lock: Lock,
+            gain_map_config: GainMapConfig,
+        ) -> tuple[int, Path, bool, Exception | None]:
+            if self.is_cancelled:
+                return index, input_path, False, RuntimeError("Cancelled")
+
+            output_name = f"{input_path.stem}_ultrahdr.jpg"
+            output_path = (
+                self.output_dir / output_name if self.output_dir is not None else input_path.with_name(output_name)
+            )
+            self.status_update.emit(index, "Processing")
+
+            def progress_cb(message: str, step: int, total_steps: int) -> None:
+                if self.is_cancelled:
+                    raise RuntimeError("Cancelled")
+                
+                file_progress[index] = step / total_steps
+                overall_val = sum(file_progress) / total_files
+                
+                now = time.monotonic()
+                if now - last_emit_time[0] > _PROGRESS_THROTTLE_SECONDS or step == total_steps:
+                    with emit_lock:
+                        if time.monotonic() - last_emit_time[0] > _PROGRESS_THROTTLE_SECONDS or step == total_steps:
+                            self.progress.emit(f"[{input_path.name}] {message}", overall_val)
+                            last_emit_time[0] = time.monotonic()
+
+            try:
+                convert_jpeg_to_ultrahdr(
+                    input_jpeg=input_path,
+                    output_jpeg=output_path,
+                    gain_map_config=gain_map_config,
+                    progress_callback=progress_cb,
+                )
+                return index, input_path, True, None
+            except AlreadyUltraHDRError as exc:
+                file_progress[index] = 1.0
+                return index, input_path, False, exc
+            except Exception as exc:
+                return index, input_path, False, exc
+
         def run(self) -> None:
             """Execute the conversion batch. Called by Qt on the worker thread."""
             total_files = len(self.input_files)
@@ -126,38 +146,48 @@ if HAS_PYSIDE:
             failures = 0
             successes = 0
 
-            for index, input_path in enumerate(self.input_files):
-                if self.is_cancelled:
-                    self.log.emit("Conversion cancelled by user.")
-                    break
+            file_progress = [0.0] * total_files
+            last_emit_time = [0.0]
+            emit_lock = Lock()
 
-                output_name = f"{input_path.stem}_ultrahdr.jpg"
-                output_path = (
-                    self.output_dir / output_name if self.output_dir is not None else input_path.with_name(output_name)
-                )
-                self.status_update.emit(index, "Processing")
-                progress_cb = _make_progress_callback(self, index, total_files, input_path.name)
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                futures = {
+                    executor.submit(
+                        self._process_file,
+                        i,
+                        p,
+                        total_files,
+                        file_progress,
+                        last_emit_time,
+                        emit_lock,
+                        gain_map_config,
+                    ): i
+                    for i, p in enumerate(self.input_files)
+                }
 
-                try:
-                    convert_jpeg_to_ultrahdr(
-                        input_jpeg=input_path,
-                        output_jpeg=output_path,
-                        gain_map_config=gain_map_config,
-                        progress_callback=progress_cb,
-                    )
-                    successes += 1
-                    self.status_update.emit(index, "OK")
-                    self.log.emit(f"[{input_path.name}] Wrote {output_path}")
-                except AlreadyUltraHDRError:
-                    self.status_update.emit(index, "Skipped")
-                    self.log.emit(f"[{input_path.name}] Skipped: Already an Ultra HDR image.")
-                except Exception as exc:
-                    if self.is_cancelled and str(exc) == "Cancelled":
-                        self.status_update.emit(index, "Cancelled")
+                for future in concurrent.futures.as_completed(futures):
+                    if self.is_cancelled:
+                        for f in futures:
+                            f.cancel()
                         break
-                    failures += 1
-                    self.status_update.emit(index, "Failed")
-                    self.log.emit(f"[{input_path.name}] Failed: {exc}")
+
+                    index, input_path, success, exc = future.result()
+                    if success:
+                        successes += 1
+                        self.status_update.emit(index, "OK")
+                        self.log.emit(f"[{input_path.name}] Wrote output")
+                    elif isinstance(exc, AlreadyUltraHDRError):
+                        self.status_update.emit(index, "Skipped")
+                        self.log.emit(f"[{input_path.name}] Skipped: Already an Ultra HDR image.")
+                    elif isinstance(exc, RuntimeError) and str(exc) == "Cancelled":
+                        self.status_update.emit(index, "Cancelled")
+                    else:
+                        failures += 1
+                        self.status_update.emit(index, "Failed")
+                        self.log.emit(f"[{input_path.name}] Failed: {exc}")
+
+            if self.is_cancelled:
+                self.log.emit("Conversion cancelled by user.")
 
             self.finished.emit(successes, failures)
 

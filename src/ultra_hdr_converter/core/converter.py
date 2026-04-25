@@ -10,6 +10,7 @@ import numpy as np
 
 from ultra_hdr_converter.core.color_cms import extract_xyz_luminance
 from ultra_hdr_converter.core.gain_map import (
+    GRAYSCALE_NDIM,
     GainMapConfig,
     generate_gain_map,
     validate_gain_map,
@@ -45,7 +46,7 @@ def _notify_progress(progress_callback: ProgressCallback | None, message: str, s
         progress_callback(message, step, PROGRESS_STEP_COUNT)
 
 
-def _validate_gain_map_shape(gain_map: object, sdr_shape: tuple[int, ...]) -> None:
+def _validate_gain_map_shape(gain_map: np.ndarray, sdr_shape: tuple[int, ...]) -> None:
     """Validate gain map spatial dimensions against the SDR base image.
 
     Args:
@@ -56,6 +57,8 @@ def _validate_gain_map_shape(gain_map: object, sdr_shape: tuple[int, ...]) -> No
         GainMapShapeMismatchError: If the spatial dimensions differ.
     """
     gm = np.asarray(gain_map)
+    if gm.ndim < GRAYSCALE_NDIM or len(sdr_shape) < GRAYSCALE_NDIM:
+        raise GainMapShapeMismatchError(gain_map_shape=gm.shape, sdr_shape=sdr_shape)
     gm_spatial = (gm.shape[0], gm.shape[1])
     sdr_spatial = (sdr_shape[0], sdr_shape[1])
     if gm_spatial != sdr_spatial:
@@ -73,17 +76,32 @@ def convert_jpeg_to_ultrahdr(
 ) -> ConversionResult:
     """Convert an SDR JPEG to Ultra HDR JPEG using either external or generated gain map.
 
+    The gain map source is determined by the following priority:
+
+    1. If the input is already an Ultra HDR / ISO 21496-1 image, raise
+       ``AlreadyUltraHDRError`` so callers can skip it.
+    2. If *gain_map_path* is provided, the external file is used.
+    3. If the input contains an MPF auxiliary image (gain map) but lacks
+       Ultra HDR metadata, the embedded gain map is reused and proper
+       XMP + ISO 21496-1 metadata is written.
+    4. Otherwise a gain map is generated from the SDR luminance data.
+
     Args:
         input_jpeg: Path to the SDR base JPEG.
         output_jpeg: Path for the Ultra HDR output JPEG.
         gain_map_path: Optional external gain map file.
         gain_map_config: Optional configuration for generated gain maps.
         progress_callback: Optional callback invoked at coarse pipeline phase boundaries.
+        jpeg_quality: JPEG quality level for gain map compression (0-100).
+        max_content_boost: Maximum HDR content boost in stops.  When ``None``,
+            defaults to the config's ``max_boost_factor`` for generated maps
+            or 3.0 for external/embedded maps.
 
     Returns:
         Summary of the completed conversion.
 
     Raises:
+        AlreadyUltraHDRError: If the input already contains Ultra HDR metadata.
         GainMapShapeMismatchError: If an external gain map's spatial dimensions
             do not match the SDR base image.
     """

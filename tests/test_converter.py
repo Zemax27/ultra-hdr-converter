@@ -6,6 +6,9 @@ import pytest
 from ultra_hdr_converter.core.converter import convert_jpeg_to_ultrahdr
 from ultra_hdr_converter.errors import AlreadyUltraHDRError, GainMapShapeMismatchError
 
+EXPECTED_EXTERNAL_BOOST = 6.0
+EXPECTED_EMBEDDED_BOOST = 5.0
+
 
 def test_pipeline_uses_external_gain_map(monkeypatch: object, tmp_path: Path) -> None:
     input_file = tmp_path / "input.jpg"
@@ -204,3 +207,106 @@ def test_pipeline_uses_embedded_mpf_gain_map(monkeypatch: object, tmp_path: Path
 
     assert result.gain_map_source == "embedded"
     assert b"mpf_jpeg" in decode_calls
+
+
+def test_pipeline_already_ultrahdr_error_includes_path(monkeypatch: object, tmp_path: Path) -> None:
+    input_file = tmp_path / "my_photo.jpg"
+    output_file = tmp_path / "output.jpg"
+    input_file.write_bytes(b"jpeg")
+
+    monkeypatch.setattr("ultra_hdr_converter.core.converter.read_bytes", lambda _: b"jpeg")
+    monkeypatch.setattr("ultra_hdr_converter.core.converter.has_ultrahdr_metadata", lambda _: True)
+
+    with pytest.raises(AlreadyUltraHDRError) as exc_info:
+        convert_jpeg_to_ultrahdr(input_jpeg=input_file, output_jpeg=output_file)
+
+    assert "my_photo.jpg" in str(exc_info.value)
+
+
+def test_pipeline_embedded_mpf_shape_mismatch(monkeypatch: object, tmp_path: Path) -> None:
+    """Embedded MPF gain map with wrong dimensions should raise GainMapShapeMismatchError."""
+    input_file = tmp_path / "input.jpg"
+    output_file = tmp_path / "output.jpg"
+    input_file.write_bytes(b"jpeg")
+
+    fake_sdr = np.zeros((8, 8, 3), dtype=np.uint8)
+    fake_gain = np.full((4, 4), 111, dtype=np.uint8)  # Wrong spatial dimensions
+
+    monkeypatch.setattr("ultra_hdr_converter.core.converter.read_bytes", lambda _: b"jpeg")
+    monkeypatch.setattr("ultra_hdr_converter.core.converter.has_ultrahdr_metadata", lambda _: False)
+    monkeypatch.setattr("ultra_hdr_converter.core.converter.extract_mpf_gain_map", lambda _: b"mpf")
+
+    def _mock_decode(b: bytes) -> np.ndarray:
+        return fake_gain if b == b"mpf" else fake_sdr
+
+    monkeypatch.setattr("ultra_hdr_converter.core.converter.decode_jpeg", _mock_decode)
+    monkeypatch.setattr("ultra_hdr_converter.core.converter.extract_icc_profile", lambda _: None)
+
+    with pytest.raises(GainMapShapeMismatchError, match="does not match"):
+        convert_jpeg_to_ultrahdr(input_jpeg=input_file, output_jpeg=output_file)
+
+
+def test_pipeline_forwards_max_content_boost_for_external(monkeypatch: object, tmp_path: Path) -> None:
+    """max_content_boost should be forwarded to the encoder when using an external gain map."""
+    input_file = tmp_path / "input.jpg"
+    output_file = tmp_path / "output.jpg"
+    gain_map_file = tmp_path / "gain.npy"
+
+    input_file.write_bytes(b"jpeg")
+    np.save(gain_map_file, np.full((4, 4), 100, dtype=np.uint8))
+
+    fake_sdr = np.zeros((4, 4, 3), dtype=np.uint8)
+    captured_kwargs: list[dict[str, object]] = []
+
+    monkeypatch.setattr("ultra_hdr_converter.core.converter.read_bytes", lambda _: b"jpeg")
+    monkeypatch.setattr("ultra_hdr_converter.core.converter.decode_jpeg", lambda _: fake_sdr)
+    monkeypatch.setattr("ultra_hdr_converter.core.converter.extract_icc_profile", lambda _: None)
+
+    def _capture_encode(**kwargs: object) -> bytes:
+        captured_kwargs.append(kwargs)
+        return b"ultrahdr"
+
+    monkeypatch.setattr("ultra_hdr_converter.core.converter.encode_ultrahdr", _capture_encode)
+    monkeypatch.setattr("ultra_hdr_converter.core.converter.write_bytes", lambda *_a, **_k: None)
+
+    convert_jpeg_to_ultrahdr(
+        input_jpeg=input_file, output_jpeg=output_file,
+        gain_map_path=gain_map_file, max_content_boost=EXPECTED_EXTERNAL_BOOST,
+    )
+
+    assert captured_kwargs[0]["max_content_boost"] == EXPECTED_EXTERNAL_BOOST
+
+
+def test_pipeline_forwards_max_content_boost_for_embedded(monkeypatch: object, tmp_path: Path) -> None:
+    """max_content_boost should be forwarded to the encoder when using an embedded gain map."""
+    input_file = tmp_path / "input.jpg"
+    output_file = tmp_path / "output.jpg"
+    input_file.write_bytes(b"jpeg")
+
+    fake_sdr = np.zeros((4, 4, 3), dtype=np.uint8)
+    fake_gain = np.full((4, 4), 111, dtype=np.uint8)
+    captured_kwargs: list[dict[str, object]] = []
+
+    monkeypatch.setattr("ultra_hdr_converter.core.converter.read_bytes", lambda _: b"jpeg")
+    monkeypatch.setattr("ultra_hdr_converter.core.converter.has_ultrahdr_metadata", lambda _: False)
+    monkeypatch.setattr("ultra_hdr_converter.core.converter.extract_mpf_gain_map", lambda _: b"mpf")
+
+    def _mock_decode(b: bytes) -> np.ndarray:
+        return fake_gain if b == b"mpf" else fake_sdr
+
+    monkeypatch.setattr("ultra_hdr_converter.core.converter.decode_jpeg", _mock_decode)
+    monkeypatch.setattr("ultra_hdr_converter.core.converter.extract_icc_profile", lambda _: None)
+
+    def _capture_encode(**kwargs: object) -> bytes:
+        captured_kwargs.append(kwargs)
+        return b"ultrahdr"
+
+    monkeypatch.setattr("ultra_hdr_converter.core.converter.encode_ultrahdr", _capture_encode)
+    monkeypatch.setattr("ultra_hdr_converter.core.converter.write_bytes", lambda *_a, **_k: None)
+
+    convert_jpeg_to_ultrahdr(
+        input_jpeg=input_file, output_jpeg=output_file,
+        max_content_boost=EXPECTED_EMBEDDED_BOOST,
+    )
+
+    assert captured_kwargs[0]["max_content_boost"] == EXPECTED_EMBEDDED_BOOST

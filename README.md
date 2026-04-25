@@ -101,14 +101,21 @@ The GUI runs conversions on a background thread so the interface stays responsiv
 ## Programmatic Usage
 
 ```python
-from ultra_hdr_converter import convert_jpeg_to_ultrahdr, GainMapConfig
-
-# Auto-generate gain map with custom tuning.
-result = convert_jpeg_to_ultrahdr(
-    input_jpeg="input.jpg",
-    output_jpeg="output_ultrahdr.jpg",
-    gain_map_config=GainMapConfig(highlight_threshold=0.4, max_boost_factor=6.0),
+from ultra_hdr_converter import (
+    convert_jpeg_to_ultrahdr,
+    GainMapConfig,
+    AlreadyUltraHDRError
 )
+
+try:
+    # Auto-generate gain map with custom tuning.
+    result = convert_jpeg_to_ultrahdr(
+        input_jpeg="input.jpg",
+        output_jpeg="output_ultrahdr.jpg",
+        gain_map_config=GainMapConfig(highlight_threshold=0.4, max_boost_factor=3.0),
+    )
+except AlreadyUltraHDRError as e:
+    print(f"Skipping: {e}")
 
 # Use an external gain map.
 result = convert_jpeg_to_ultrahdr(

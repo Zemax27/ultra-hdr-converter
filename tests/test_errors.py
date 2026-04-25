@@ -1,4 +1,5 @@
 from ultra_hdr_converter.errors import (
+    AlreadyUltraHDRError,
     ColorTransformError,
     GainMapConfigError,
     GainMapDimensionError,
@@ -16,6 +17,7 @@ def test_exception_hierarchy():
     assert issubclass(GainMapConfigError, GainMapError)
     assert issubclass(ColorTransformError, UltraHdrError)
     assert issubclass(JpegStructureError, UltraHdrError)
+    assert issubclass(AlreadyUltraHDRError, UltraHdrError)
 
 
 def test_gain_map_shape_mismatch_error_stores_shapes():

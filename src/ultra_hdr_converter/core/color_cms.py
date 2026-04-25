@@ -19,7 +19,7 @@ from ultra_hdr_converter.errors import ColorTransformError
 
 
 def ensure_cms_available() -> None:
-    """Verify that imagecodecms CMS extension is present and usable.
+    """Verify that imagecodecs CMS extension is present and usable.
 
     Raises:
         ColorTransformError: If the CMS extension is not available.
