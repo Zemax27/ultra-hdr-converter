@@ -149,7 +149,7 @@ The built-in generator follows the **ISO 21496-1** and Adobe Ultra HDR specifica
 ## Development
 
 ```powershell
-# Install all dev dependencies (includes PyInstaller for bundling)
+# Install all dev dependencies (includes Nuitka for bundling)
 uv sync --group dev --extra cli --extra gui
 
 # Lint
@@ -165,17 +165,10 @@ uv run pytest
 uv build
 
 # Build standalone GUI bundle (local test)
-uv run pyinstaller --onedir --name uhdr-gui --windowed `
-    --add-data "src/ultra_hdr_converter/ui/assets:ultra_hdr_converter/ui/assets" `
-    --hidden-import ultra_hdr_converter.ui.assets `
-    --collect-all imagecodecs `
-    --exclude-module tkinter `
-    --exclude-module unittest `
-    --exclude-module PySide6.QtWebEngine `
-    --exclude-module PySide6.QtWebEngineCore `
-    --exclude-module PySide6.QtQml `
-    --exclude-module PySide6.QtQuick `
-    --exclude-module PySide6.QtNetwork `
+uv run python -m nuitka --standalone --output-filename=uhdr-gui --windows-console-mode=disable `
+    --enable-plugin=pyside6 `
+    --include-data-dir="src/ultra_hdr_converter/ui/assets=ultra_hdr_converter/ui/assets" `
+    --include-package=imagecodecs `
     src/ultra_hdr_converter/ui/gui.py
 ```
 

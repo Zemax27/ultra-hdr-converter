@@ -17,15 +17,10 @@ jobs:
         include:
           - os: ubuntu-latest
             asset_name: linux
-            icon_flag: ""
           - os: windows-latest
             asset_name: windows
-            # PyInstaller uses .ico on Windows; the PNG is converted at build time.
-            icon_flag: "--icon=src/ultra_hdr_converter/ui/assets/icon.png"
           - os: macos-latest
             asset_name: macos
-            # PyInstaller accepts PNG on macOS (wraps into .icns automatically).
-            icon_flag: "--icon=src/ultra_hdr_converter/ui/assets/icon.png"
 
     steps:
       - name: Checkout
@@ -40,47 +35,38 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev --extra gui
 
-      # Linux: install binutils so PyInstaller bootloader links correctly.
+      - name: Activate virtual environment (Windows)
+        if: runner.os == 'Windows'
+        run: echo "$env:GITHUB_WORKSPACE\.venv\Scripts" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Activate virtual environment (Unix)
+        if: runner.os != 'Windows'
+        run: echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
+
+      # Linux: install dependencies for Nuitka.
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get install -y binutils
+        run: sudo apt-get install -y patchelf ccache
 
       - name: Build GUI bundle
+        uses: Nuitka/Nuitka-Action@main
+        with:
+          nuitka-version: main
+          script-name: src/ultra_hdr_converter/ui/gui.py
+          mode: standalone
+          output-file: uhdr-gui
+          windows-console-mode: disable
+          enable-plugins: pyside6
+          include-data-dir: src/ultra_hdr_converter/ui/assets=ultra_hdr_converter/ui/assets
+          include-package: imagecodecs
+          output-dir: dist
+          windows-icon-from-ico: src/ultra_hdr_converter/ui/assets/icon.png
+          macos-app-icon: src/ultra_hdr_converter/ui/assets/icon.png
+          linux-icon: src/ultra_hdr_converter/ui/assets/icon.png
+
+      - name: Rename output
         shell: bash
-        run: |
-          uv run pyinstaller \
-            --onedir \
-            --name uhdr-gui \
-            --windowed \
-            ${{ matrix.icon_flag }} \
-            --add-data "src/ultra_hdr_converter/ui/assets:ultra_hdr_converter/ui/assets" \
-            --hidden-import ultra_hdr_converter.ui.assets \
-            --collect-all imagecodecs \
-            --exclude-module tkinter \
-            --exclude-module unittest \
-            --exclude-module pydoc \
-            --exclude-module PySide6.QtWebEngine \
-            --exclude-module PySide6.QtWebEngineCore \
-            --exclude-module PySide6.QtWebEngineWidgets \
-            --exclude-module PySide6.QtQml \
-            --exclude-module PySide6.QtQuick \
-            --exclude-module PySide6.QtNetwork \
-            --exclude-module PySide6.QtSql \
-            --exclude-module PySide6.QtTest \
-            --exclude-module PySide6.QtBluetooth \
-            --exclude-module PySide6.QtMultimedia \
-            --exclude-module PySide6.QtMultimediaWidgets \
-            --exclude-module PySide6.QtSensors \
-            --exclude-module PySide6.QtPositioning \
-            --exclude-module PySide6.QtWebChannel \
-            --exclude-module PySide6.QtWebSockets \
-            --exclude-module PySide6.Qt3DCore \
-            --exclude-module PySide6.Qt3DRender \
-            --distpath dist \
-            --workpath build \
-            --clean \
-            -y \
-            src/ultra_hdr_converter/ui/gui.py
+        run: mv dist/gui.dist dist/uhdr-gui
 
       - name: Attach license files to bundle (Unix)
         if: runner.os != 'Windows'

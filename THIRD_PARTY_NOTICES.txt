@@ -21,10 +21,10 @@ Development/build dependencies:
 - pytest-cov (MIT)
 - ruff (MIT)
 - mypy (MIT)
-- pyinstaller (GPLv2 with bootloader exception)
-  https://pyinstaller.org/en/stable/license.html
-  The bootloader exception permits distributing applications frozen with
-  PyInstaller without the GPL propagating to your own source code.
+- nuitka (AGPLv3 with Nuitka Runtime Exception)
+  https://github.com/Nuitka/Nuitka/blob/main/LICENSE-RUNTIME.txt
+  The runtime exception permits distributing applications compiled with
+  Nuitka without the AGPLv3 propagating to your own source code.
 
 Important notes:
 - This project is licensed under the Apache License 2.0 (see LICENSE).
