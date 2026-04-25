@@ -27,8 +27,8 @@ try:
 except ImportError:
     _RICH_AVAILABLE = False
 
-from ultra_hdr_converter.gainmap import GainMapConfig
-from ultra_hdr_converter.pipeline import ConversionResult, convert_jpeg_to_ultrahdr
+from ultra_hdr_converter.core.converter import ConversionResult, convert_jpeg_to_ultrahdr
+from ultra_hdr_converter.core.gain_map import GainMapConfig
 
 JPEG_SUFFIXES = {".jpg", ".jpeg"}
 DEFAULT_OUTPUT_SUFFIX = "_ultrahdr.jpg"
@@ -94,8 +94,14 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-boost-factor",
         type=float,
-        default=4.0,
+        default=3.0,
         help="Maximum HDR multiplier for the brightest pixels.",
+    )
+    parser.add_argument(
+        "--jpeg-quality",
+        type=int,
+        default=95,
+        help="JPEG quality level for the gain map (0-100).",
     )
     parser.add_argument(
         "--guided-radius",
@@ -276,6 +282,8 @@ def _run_jobs(
     jobs: Sequence[ConversionJob],
     gain_map_path: Path | None,
     gain_map_config: GainMapConfig,
+    jpeg_quality: int,
+    external_boost: float,
 ) -> tuple[list[ConversionResult], list[tuple[ConversionJob, Exception]]]:
     """Execute conversion jobs with Rich progress reporting."""
     successes: list[ConversionResult] = []
@@ -309,6 +317,8 @@ def _run_jobs(
                     gain_map_path=gain_map_path,
                     gain_map_config=gain_map_config,
                     progress_callback=progress_callback,
+                    jpeg_quality=jpeg_quality,
+                    max_content_boost=external_boost if gain_map_path is not None else None,
                 )
             except Exception as exc:  # pragma: no cover - exercised by CLI usage
                 failures.append((job, exc))
@@ -358,7 +368,9 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     jobs = _build_jobs(parser, args)
     gain_map_config = _build_gain_map_config(args)
-    successes, failures = _run_jobs(console, jobs, args.gain_map, gain_map_config)
+    successes, failures = _run_jobs(
+        console, jobs, args.gain_map, gain_map_config, args.jpeg_quality, args.max_boost_factor
+    )
 
     _print_results(console, successes, failures, is_batch_mode=args.batch_inputs is not None)
     if failures:

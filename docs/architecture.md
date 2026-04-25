@@ -49,13 +49,19 @@ The pipeline also accepts an optional coarse-grained progress callback used by t
 
 ## Module Boundaries
 
-- `io.py`: byte I/O, JPEG decode, metadata extraction, gain map loading.
-- `color.py`: ICC/CMS-based linearization and type control.
-- `gainmap.py`: gain map validation and highlight-targeted generation.
-- `encoder.py`: Ultra HDR packaging and metadata embedding.
-- `pipeline.py`: orchestration, conversion result object, top-level workflow.
-- `cli.py`: command line interface, backward-compatible single-file mode, and batch job resolution.
-- `gui.py`: optional desktop UI built on CustomTkinter and a background worker thread.
+- `errors.py`: custom exception hierarchy (`UltraHdrError` base and subclasses).
+- `core/`
+  - `jpeg_io.py`: byte I/O, JPEG decode, metadata extraction, gain map loading.
+  - `color.py`: simple luminance channel extraction without ICC (grayscale helpers).
+  - `color_cms.py`: ICC/CMS-based linearisation and CIE Y luminance extraction.
+  - `gain_map.py`: gain map validation and highlight-targeted generation.
+  - `ultrahdr_encoder.py`: Ultra HDR packaging and metadata embedding.
+  - `converter.py`: orchestration, conversion result object, top-level workflow.
+- `ui/`
+  - `cli.py`: command line interface, backward-compatible single-file mode, and batch job resolution.
+  - `gui.py`: optional desktop UI built on PySide6, with a background `QThread` worker.
+  - `_gui_style.py`: dark theme palette and QSS stylesheet.
+  - `assets/`: bundled static resources (application icon) shipped with the wheel.
 
 ## Data Contracts
 
@@ -75,6 +81,9 @@ The pipeline also accepts an optional coarse-grained progress callback used by t
 
 ## Error Strategy
 
-- Raise descriptive `RuntimeError` when required imagecodecs extensions are unavailable.
-- Validate channel/dtype mismatches early with `ValueError`.
-- Keep conversion methods deterministic and side-effect free except file writes.
+- All library errors derive from `UltraHdrError` (defined in `errors.py`), giving callers a single base to catch.
+- `GainMapError` and its subclasses (`GainMapDimensionError`, `GainMapConfigError`, `GainMapShapeMismatchError`) cover gain map validation failures with actionable messages.
+- `ColorTransformError` covers ICC profile or CMS transform failures.
+- `JpegStructureError` covers malformed or incomplete JPEG byte streams.
+- Inputs are validated early; errors are raised with descriptive messages before any heavy computation begins.
+- Keep conversion functions deterministic and side-effect free except for file writes.

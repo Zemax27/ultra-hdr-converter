@@ -8,9 +8,13 @@ Direct runtime dependencies:
 - imagecodecs (BSD 3-Clause)
 - numpy (BSD 3-Clause)
 
-Optional dependencies:
+Optional dependencies (--extra gui):
+- PySide6 (LGPL-2.1-or-later / Qt Commercial)
+  https://pypi.org/project/PySide6/
+
+Optional dependencies (--extra cli):
 - rich (MIT)
-- customtkinter (MIT)
+  https://pypi.org/project/rich/
 
 Development/build dependencies:
 - pytest (MIT)
@@ -18,12 +22,19 @@ Development/build dependencies:
 - ruff (MIT)
 - mypy (MIT)
 - pyinstaller (GPLv2 with bootloader exception)
+  https://pyinstaller.org/en/stable/license.html
+  The bootloader exception permits distributing applications frozen with
+  PyInstaller without the GPL propagating to your own source code.
 
 Important notes:
 - This project is licensed under the Apache License 2.0 (see LICENSE).
 - Using these dependencies does not relicense your source code.
-- If you distribute bundled executables (for example via PyInstaller),
-  keep third-party notices and license obligations with your release assets.
+- PySide6 is distributed under the LGPL-2.1. If you distribute a binary
+  that links PySide6, you must comply with LGPL terms (e.g. allow users to
+  relink against a modified version of Qt). See:
+  https://www.qt.io/licensing/open-source-lgpl-obligations
+- If you distribute bundled executables, keep third-party notices and
+  license obligations with your release assets.
 
 For authoritative and current license terms, refer to each dependency's
 official repository and published package metadata.

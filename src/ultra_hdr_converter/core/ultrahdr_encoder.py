@@ -13,6 +13,8 @@ from fractions import Fraction
 import imagecodecs
 import numpy as np
 
+from ultra_hdr_converter.errors import JpegStructureError
+
 COLOR_NDIM = 3
 
 # ---- JPEG markers ------------------------------------------------------------
@@ -184,9 +186,13 @@ def _build_iso_metadata_segment(max_content_boost: float) -> bytes:
 
 
 def _inject_after_soi(jpeg: bytes, segment: bytes) -> bytes:
-    """Inject a marker segment right after the JPEG SOI marker."""
+    """Inject a marker segment right after the JPEG SOI marker.
+
+    Raises:
+        JpegStructureError: If the input does not start with a JPEG SOI marker.
+    """
     if jpeg[:2] != _SOI:
-        raise ValueError("Not a valid JPEG (missing SOI marker).")
+        raise JpegStructureError("Not a valid JPEG (missing SOI marker).")
     return jpeg[:2] + segment + jpeg[2:]
 
 
@@ -251,27 +257,44 @@ def _find_injection_point(jpeg: bytes) -> int:
 
     The XMP and MPF segments are inserted at this position so they sit after
     JFIF (APP0) and EXIF (APP1) but before quantisation / frame markers.
+
+    Raises:
+        JpegStructureError: If the input does not start with a JPEG SOI marker.
     """
     if jpeg[:2] != _SOI:
-        raise ValueError("Not a valid JPEG (missing SOI marker).")
+        raise JpegStructureError("Not a valid JPEG (missing SOI marker).")
 
     pos = 2  # skip SOI
     while pos + 3 < len(jpeg):
         if jpeg[pos] != _MARKER_PREFIX:
             break
-        marker = jpeg[pos + 1]
+
+        marker_pos = pos + 1
+        while marker_pos < len(jpeg) and jpeg[marker_pos] == _MARKER_PREFIX:
+            marker_pos += 1
+
+        if marker_pos >= len(jpeg):
+            break
+
+        marker = jpeg[marker_pos]
+
         # Walk past APP0 and APP1 only; stop before any other marker.
         if marker not in (0xE0, 0xE1):
             break
-        seg_length = struct.unpack(">H", jpeg[pos + 2 : pos + 4])[0]
-        pos += 2 + seg_length
+
+        seg_length = struct.unpack(">H", jpeg[marker_pos + 1 : marker_pos + 3])[0]
+        pos = marker_pos + 1 + seg_length
     return pos
 
 
 def _strip_mpf_segments(jpeg: bytes) -> bytes:
-    """Remove any existing MPF APP2 segments from a JPEG byte stream."""
+    """Remove any existing MPF APP2 segments from a JPEG byte stream.
+
+    Raises:
+        JpegStructureError: If the input does not start with a JPEG SOI marker.
+    """
     if jpeg[:2] != _SOI:
-        raise ValueError("Not a valid JPEG (missing SOI marker).")
+        raise JpegStructureError("Not a valid JPEG (missing SOI marker).")
 
     # Fast path: skip byte-by-byte parsing when no MPF marker is present.
     if _MPF_ID not in jpeg:
@@ -286,23 +309,36 @@ def _strip_mpf_segments(jpeg: bytes) -> bytes:
             parts.append(jpeg[pos:])
             break
 
-        marker = jpeg[pos + 1]
+        start_pos = pos
+        marker_pos = pos + 1
+        while marker_pos < len(jpeg) and jpeg[marker_pos] == _MARKER_PREFIX:
+            marker_pos += 1
+
+        if marker_pos >= len(jpeg):
+            parts.append(jpeg[start_pos:])
+            break
+
+        marker = jpeg[marker_pos]
 
         # Non-parameterised markers (RST, SOI, EOI, TEM) have no length.
-        if marker in (0x00, 0x01, 0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xFF):
-            parts.append(jpeg[pos : pos + 2])
-            pos += 2
+        if marker in (0x00, 0x01, 0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9):
+            pos = marker_pos + 1
+            parts.append(jpeg[start_pos:pos])
             continue
 
-        seg_length = struct.unpack(">H", jpeg[pos + 2 : pos + 4])[0]
-        seg_end = pos + 2 + seg_length
+        if marker_pos + 2 >= len(jpeg):
+            parts.append(jpeg[start_pos:])
+            break
+
+        seg_length = struct.unpack(">H", jpeg[marker_pos + 1 : marker_pos + 3])[0]
+        seg_end = marker_pos + 1 + seg_length
 
         # Drop APP2 segments whose payload starts with "MPF\0".
-        if marker == _APP2 and jpeg[pos + 4 : pos + 8] == _MPF_ID:
+        if marker == _APP2 and jpeg[marker_pos + 3 : marker_pos + 7] == _MPF_ID:
             pos = seg_end
             continue
 
-        parts.append(jpeg[pos:seg_end])
+        parts.append(jpeg[start_pos:seg_end])
         pos = seg_end
 
     return b"".join(parts)
@@ -315,7 +351,7 @@ def encode_ultrahdr(
     sdr_jpeg: bytes,
     gain_map: np.ndarray,
     jpeg_quality: int = 95,
-    max_content_boost: float = 6.0,
+    max_content_boost: float = 3.0,
 ) -> bytes:
     """
     Compose an Ultra HDR JPEG from an SDR JPEG and a gain map (API-4).

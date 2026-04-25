@@ -81,7 +81,8 @@ The GUI runs conversions on a background thread so the interface stays responsiv
 | `--gain-map FILE` | auto-generated | External gain map file (`.npy` or image). Skips gain map synthesis. |
 | `--highlight-threshold` | `0.5` | Luminance level (0–1) at which HDR boost begins. Lower = more pixels boosted. |
 | `--expansion-gamma` | `2.2` | Curve exponent for highlight stretching. Higher = more aggressive expansion. |
-| `--max-boost-factor` | `4.0` | Maximum HDR brightness multiplier for the brightest pixels. |
+| `--max-boost-factor` | `3.0` | Maximum HDR brightness multiplier for the brightest pixels. |
+| `--jpeg-quality` | `95` | JPEG quality level for the gain map (0-100). |
 | `--guided-radius` | `20` | Edge-aware smoothing radius. Larger = smoother gain map, slower. |
 | `--guided-eps` | `0.001` | Edge sensitivity for guided filter. Smaller = sharper edges preserved. |
 | `--bloom-weight` | `0.15` | Bloom halo intensity around bright areas. Set to `0` to disable. |
@@ -137,7 +138,7 @@ The built-in generator uses a highlight-targeted inverse tone-mapping approach:
 ## Development
 
 ```powershell
-# Install all dev dependencies
+# Install all dev dependencies (includes PyInstaller for bundling)
 uv sync --group dev --extra cli --extra gui
 
 # Lint
@@ -151,6 +152,12 @@ uv run pytest
 
 # Build distributable wheel
 uv build
+
+# Build standalone GUI bundle (local test)
+uv run pyinstaller --onedir --name uhdr-gui --windowed `
+    --add-data "src/ultra_hdr_converter/ui/assets:ultra_hdr_converter/ui/assets" `
+    --hidden-import ultra_hdr_converter.ui.assets `
+    src/ultra_hdr_converter/ui/gui.py
 ```
 
 ## Architecture
@@ -164,13 +171,21 @@ Full design details are in [docs/architecture.md](docs/architecture.md).
 
 ```text
 src/ultra_hdr_converter/
-├── pipeline.py   — Orchestration and ConversionResult
-├── gainmap.py    — Gain map generation and validation
-├── color.py      — ICC-aware linearisation and luminance extraction
-├── encoder.py    — Ultra HDR JPEG encoding (MPF + XMP + ISO metadata)
-├── io.py         — JPEG decode/encode and gain map I/O
-├── cli.py        — Command line interface (uhdr-convert)
-└── gui.py        — Optional desktop GUI (uhdr-gui)
+├── __init__.py               — Public API exports
+├── errors.py                 — Custom exception hierarchy
+├── core/                     — Image processing pipeline
+│   ├── converter.py          — Orchestration and ConversionResult
+│   ├── gain_map.py           — Gain map generation and validation
+│   ├── color.py              — Simple luminance channel extraction
+│   ├── color_cms.py          — ICC-aware linearisation and CIE Y extraction
+│   ├── ultrahdr_encoder.py   — Ultra HDR JPEG encoding (MPF + XMP + ISO)
+│   └── jpeg_io.py            — JPEG decode/encode and file I/O
+└── ui/                       — User interfaces
+    ├── cli.py                — Command line interface (uhdr-convert)
+    ├── gui.py                — Optional desktop GUI (uhdr-gui, requires PySide6)
+    ├── _gui_style.py         — GUI dark theme stylesheet
+    └── assets/
+        └── icon.png          — Bundled application icon
 ```
 
 ## License
@@ -181,5 +196,5 @@ This repository is licensed under the Apache License 2.0.
 - Dependency notices: [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt)
 
 Third-party libraries keep their own licenses. If you redistribute binaries
-(for example PyInstaller bundles), include applicable third-party notices
+(for example standalone executables), include applicable third-party notices
 and license files in your release assets.

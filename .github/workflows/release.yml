@@ -17,10 +17,15 @@ jobs:
         include:
           - os: ubuntu-latest
             asset_name: linux
+            icon_flag: ""
           - os: windows-latest
             asset_name: windows
+            # PyInstaller uses .ico on Windows; the PNG is converted at build time.
+            icon_flag: "--icon=src/ultra_hdr_converter/ui/assets/icon.png"
           - os: macos-latest
             asset_name: macos
+            # PyInstaller accepts PNG on macOS (wraps into .icns automatically).
+            icon_flag: "--icon=src/ultra_hdr_converter/ui/assets/icon.png"
 
     steps:
       - name: Checkout
@@ -35,10 +40,28 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev --extra gui
 
-      - name: Build GUI bundle
-        run: uv run pyinstaller --noconfirm --clean --onedir --windowed --paths src src/ultra_hdr_converter/gui.py --name uhdr-gui
+      # Linux: install binutils so PyInstaller bootloader links correctly.
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y binutils
 
-      - name: Attach license files to bundle
+      - name: Build GUI bundle
+        shell: bash
+        run: |
+          uv run pyinstaller \
+            --onedir \
+            --name uhdr-gui \
+            --windowed \
+            ${{ matrix.icon_flag }} \
+            --add-data "src/ultra_hdr_converter/ui/assets:ultra_hdr_converter/ui/assets" \
+            --hidden-import ultra_hdr_converter.ui.assets \
+            --distpath dist \
+            --workpath build \
+            --clean \
+            -y \
+            src/ultra_hdr_converter/ui/gui.py
+
+      - name: Attach license files to bundle (Unix)
         if: runner.os != 'Windows'
         run: |
           cp LICENSE dist/uhdr-gui/LICENSE

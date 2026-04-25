@@ -1,69 +1,41 @@
 import numpy as np
+import pytest
 
-from ultra_hdr_converter.color import extract_xyz_luminance, linearize_from_icc
-
-EXPECTED_NDIM = 2
-
-
-def test_linearize_from_icc_falls_back_to_srgb_on_invalid_profile(monkeypatch: object) -> None:
-    sdr = np.zeros((2, 2, 3), dtype=np.uint8)
-    profile_calls: list[tuple[object, object]] = []
-    transform_calls: list[tuple[object, object]] = []
-
-    def _fake_profile(profile: object, **kwargs: object) -> object:
-        profile_calls.append((profile, tuple(sorted(kwargs.items()))))
-        if profile == b"icc":
-            raise ValueError("bad icc")
-        return f"profile:{profile}:{kwargs}"
-
-    def _fake_transform(
-        _array: np.ndarray,
-        src: object,
-        dst: object,
-        **_kwargs: object,
-    ) -> np.ndarray:
-        transform_calls.append((src, dst))
-        return np.ones((2, 2, 3), dtype=np.float32)
-
-    monkeypatch.setattr("ultra_hdr_converter.color.imagecodecs.cms_profile", _fake_profile)
-    monkeypatch.setattr("ultra_hdr_converter.color.imagecodecs.cms_transform", _fake_transform)
-
-    output = linearize_from_icc(sdr, b"icc", outdtype=np.float32)
-
-    assert output.dtype == np.float32
-    assert output.shape == (2, 2, 3)
-    assert profile_calls[0][0] == b"icc"
-    assert profile_calls[1][0] == "srgb"
-    assert transform_calls[0][0] != "srgb"
-    assert transform_calls[0][1] != "srgb"
+from ultra_hdr_converter.core.color import extract_y_channel, luminance_from_grayscale
+from ultra_hdr_converter.errors import ColorTransformError
 
 
-def test_extract_xyz_luminance_returns_2d_float(monkeypatch: object) -> None:
-    sdr = np.full((3, 3, 3), 128, dtype=np.uint8)
+def test_extract_y_channel_returns_y_from_xyz():
+    xyz = np.zeros((4, 4, 3), dtype=np.float32)
+    xyz[..., 1] = 0.75
+    result = extract_y_channel(xyz)
+    assert result.shape == (4, 4)
+    assert result.dtype == np.float32
+    assert np.allclose(result, 0.75)
 
-    def _fake_profile(profile: object, **kwargs: object) -> object:
-        return f"profile:{profile}:{kwargs}"
 
-    def _fake_transform(
-        _array: np.ndarray,
-        _src: object,
-        _dst: object,
-        **_kwargs: object,
-    ) -> np.ndarray:
-        # Simulate CMS XYZ output: X=0.5, Y=0.7, Z=0.3 per pixel.
-        result = np.empty((3, 3, 3), dtype=np.float32)
-        result[..., 0] = 0.5
-        result[..., 1] = 0.7
-        result[..., 2] = 0.3
-        return result
+def test_extract_y_channel_rejects_2d_input():
+    xyz = np.zeros((4, 4), dtype=np.float32)
+    with pytest.raises(ColorTransformError, match="XYZ array must be shape"):
+        extract_y_channel(xyz)
 
-    monkeypatch.setattr("ultra_hdr_converter.color.imagecodecs.cms_profile", _fake_profile)
-    monkeypatch.setattr("ultra_hdr_converter.color.imagecodecs.cms_transform", _fake_transform)
 
-    luminance = extract_xyz_luminance(sdr, icc_profile=None)
+def test_extract_y_channel_rejects_insufficient_channels():
+    xyz = np.zeros((4, 4, 2), dtype=np.float32)
+    with pytest.raises(ColorTransformError, match="XYZ array must be shape"):
+        extract_y_channel(xyz)
 
-    assert luminance.ndim == EXPECTED_NDIM
-    assert luminance.shape == (3, 3)
-    assert luminance.dtype == np.float32
-    # Y channel should be extracted directly (0.7).
-    assert np.allclose(luminance, 0.7, atol=1e-6)
+
+def test_luminance_from_grayscale_casts_dtype():
+    gray = np.full((3, 3), 128, dtype=np.uint8)
+    result = luminance_from_grayscale(gray)
+    assert result.shape == (3, 3)
+    assert result.dtype == np.float32
+    assert np.allclose(result, 128.0)
+
+
+def test_luminance_from_grayscale_preserves_float32():
+    gray = np.full((3, 3), 0.5, dtype=np.float32)
+    result = luminance_from_grayscale(gray)
+    assert result.dtype == np.float32
+    assert np.allclose(result, 0.5)

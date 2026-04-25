@@ -31,15 +31,14 @@ dev = [
   "pytest-cov>=5.0.0",
   "ruff>=0.7.0",
   "mypy>=1.11.0",
-  "pyinstaller>=6.10.0"
 ]
 gui = [
-  "customtkinter>=5.2.0"
+  "PySide6>=6.7.0"
 ]
 
 [project.scripts]
-uhdr-convert = "ultra_hdr_converter.cli:main"
-uhdr-gui = "ultra_hdr_converter.gui:main"
+uhdr-convert = "ultra_hdr_converter.ui.cli:main"
+uhdr-gui = "ultra_hdr_converter.ui.gui:main"
 
 [dependency-groups]
 dev = [
@@ -47,8 +46,8 @@ dev = [
   "pytest-cov>=5.0.0",
   "ruff>=0.7.0",
   "mypy>=1.11.0",
-  "pyinstaller>=6.10.0",
-  "rich>=13.0.0"
+  "rich>=13.0.0",
+  "pyinstaller>=6.0.0"
 ]
 
 [tool.uv]
