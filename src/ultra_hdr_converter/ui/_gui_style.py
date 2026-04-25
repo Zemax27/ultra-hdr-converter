@@ -1,4 +1,4 @@
-"""Dark-theme palette and QSS stylesheet for the Ultra HDR Studio GUI.
+"""Dark-theme palette and QSS stylesheet for the Ultra HDR Converter GUI.
 
 All colour constants are module-level strings so they can be referenced both
 inside the QSS f-string and from Python code (e.g. for item foreground colours).

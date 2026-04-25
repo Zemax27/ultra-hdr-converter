@@ -168,7 +168,7 @@ if HAS_PYSIDE:
 
         def __init__(self) -> None:
             super().__init__()
-            self.setWindowTitle("Ultra HDR Studio")
+            self.setWindowTitle("Ultra HDR Converter")
             self.resize(1080, 720)
             self.setMinimumSize(720, 520)
             self.setAcceptDrops(True)
@@ -235,7 +235,7 @@ if HAS_PYSIDE:
                 icon_lbl.setPixmap(QIcon(str(_ICON_PATH)).pixmap(24, 24))
                 row.addWidget(icon_lbl)
 
-            title = QLabel("Ultra HDR Studio")
+            title = QLabel("Ultra HDR Converter")
             title.setObjectName("app_title")
             row.addWidget(title)
 
