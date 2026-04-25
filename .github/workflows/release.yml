@@ -55,6 +55,7 @@ jobs:
             ${{ matrix.icon_flag }} \
             --add-data "src/ultra_hdr_converter/ui/assets:ultra_hdr_converter/ui/assets" \
             --hidden-import ultra_hdr_converter.ui.assets \
+            --collect-all imagecodecs \
             --distpath dist \
             --workpath build \
             --clean \
