@@ -202,7 +202,9 @@ def transform_to_xyz(
         outdtype: Output dtype for the XYZ array.
 
     Returns:
-        CIE XYZ array of shape (H, W, 3) with the requested dtype.
+        CIE XYZ array of shape (H, W, 3) with the requested dtype. Values are
+        normalized to the range [0.0, 1.0] where 1.0 represents the reference
+        white of the Profile Connection Space (D50).
 
     Raises:
         ColorTransformError: If CMS is unavailable or all transform paths fail.
@@ -252,13 +254,18 @@ def extract_xyz_luminance(
     intermediate sRGB gamut clipping. Falls back to sRGB assumptions
     when the profile is missing or rejected by CMS.
 
+    The returned luminance values are normalized to the range [0.0, 1.0],
+    where 1.0 corresponds to the reference white of the profile connection
+    space.
+
     Args:
         sdr_array: Non-linear SDR image of shape (H, W) or (H, W, 3), dtype uint8.
         icc_profile: Embedded ICC profile bytes, or None.
         outdtype: Output dtype for the luminance array.
 
     Returns:
-        2-D float array of CIE Y (luminance) values with shape (H, W).
+        2-D float array of CIE Y (luminance) values with shape (H, W) and values
+        in the normalized range [0.0, 1.0].
 
     Raises:
         ColorTransformError: If the SDR array shape is invalid or CMS fails.

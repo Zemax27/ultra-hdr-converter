@@ -31,7 +31,7 @@ def test_luminance_from_grayscale_casts_dtype():
     result = luminance_from_grayscale(gray)
     assert result.shape == (3, 3)
     assert result.dtype == np.float32
-    assert np.allclose(result, 128.0)
+    assert np.allclose(result, 128 / 255)
 
 
 def test_luminance_from_grayscale_preserves_float32():
@@ -39,3 +39,17 @@ def test_luminance_from_grayscale_preserves_float32():
     result = luminance_from_grayscale(gray)
     assert result.dtype == np.float32
     assert np.allclose(result, 0.5)
+
+
+def test_luminance_from_grayscale_normalizes_uint16():
+    gray = np.full((2, 2), 32768, dtype=np.uint16)  # mid-range of uint16
+    result = luminance_from_grayscale(gray, outdtype=np.float64)
+    expected = 32768 / 65535
+    assert result.dtype == np.float64
+    assert np.allclose(result, expected)
+
+
+def test_luminance_from_grayscale_normalizes_uint8_max():
+    gray = np.full((2, 2), 255, dtype=np.uint8)
+    result = luminance_from_grayscale(gray)
+    assert np.allclose(result, 1.0)
