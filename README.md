@@ -1,18 +1,18 @@
 # Ultra HDR Converter
 
-Convert standard JPEG photos into **Ultra HDR JPEG** files compliant with **ISO 21496-1**. These images display expanded brightness and vivid highlights on HDR-capable screens (iPhone, iPad, modern Android, HDR monitors) while remaining fully compatible with SDR devices. No HDR camera needed — the tool automatically synthesizes a gain map from a single SDR JPEG.
+Convert standard JPEG photos into **Ultra HDR JPEG** files compliant with **ISO 21496-1**. These images display expanded brightness and vivid highlights on HDR-capable screens (iPhone 12 or newer, recent Android, HDR monitors) while remaining fully compatible with SDR devices. No HDR camera needed — the tool automatically synthesizes a gain map from a single SDR JPEG.
 
 ## Requirements
 
 - **Python 3.12+**
 - **[uv](https://docs.astral.sh/uv/getting-started/installation/)** — fast Python package manager
 
-For standalone GUI releases (no Python required), see [Releases](https://github.com/your-org/ultra-hdr-converter/releases).
+For standalone GUI releases (no Python required), see [Releases](https://github.com/Zemax27/ultra-hdr-converter/releases).
 
 ## Installation
 
 ```powershell
-git clone https://github.com/your-org/ultra-hdr-converter.git
+git clone https://github.com/Zemax27/ultra-hdr-converter.git
 cd ultra-hdr-converter
 uv sync                     # core library only (programmatic API)
 uv sync --extra cli         # + CLI tool (uhdr-convert)
@@ -70,7 +70,7 @@ uv sync --extra cli --extra gui
 uv run uhdr-gui
 ```
 
-The GUI runs conversions on a background thread so the interface stays responsive, and shows live progress for each pipeline phase. For a polished desktop experience, download the standalone executable from the [Releases](https://github.com/your-org/ultra-hdr-converter/releases) page.
+The GUI runs conversions on a background thread so the interface stays responsive, and shows live progress for each pipeline phase. For a polished desktop experience, download the standalone executable from the [Releases](https://github.com/Zemax27/ultra-hdr-converter/releases) page.
 
 ## CLI Reference
 
