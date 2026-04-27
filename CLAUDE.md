@@ -3,4 +3,4 @@
 These instructions apply when working in this repository with Claude Code.
 
 ## Instructions
-Follow the instructions defined in [copilot-instructions.md](.github\copilot-instructions.md) 
+Follow the instructions defined in [copilot-instructions.md](.github/copilot-instructions.md) 
