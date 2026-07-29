@@ -38,6 +38,10 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev --extra gui
 
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ccache libegl1 patchelf
+
       - name: Run tests
         env:
           QT_QPA_PLATFORM: offscreen
@@ -53,11 +57,6 @@ jobs:
       - name: Activate virtual environment (Unix)
         if: runner.os != 'Windows'
         run: echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
-
-      # Linux: install dependencies for Nuitka.
-      - name: Install system dependencies (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get install -y patchelf ccache
 
       - name: Generate native OS icons
         shell: bash
