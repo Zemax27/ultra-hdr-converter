@@ -38,6 +38,14 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev --extra gui
 
+      - name: Run tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: uv run pytest
+
+      - name: Run lint
+        run: uv run ruff check .
+
       - name: Activate virtual environment (Windows)
         if: runner.os == 'Windows'
         run: echo "$env:GITHUB_WORKSPACE\.venv\Scripts" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
@@ -56,21 +64,33 @@ jobs:
         run: |
           uv run --with pillow python -c "from PIL import Image; img = Image.open('src/ultra_hdr_converter/ui/assets/icon.png'); img.save('src/ultra_hdr_converter/ui/assets/icon.ico'); img.save('src/ultra_hdr_converter/ui/assets/icon.icns')"
 
-      - name: Build GUI bundle
-        uses: Nuitka/Nuitka-Action@main
+      - name: Build GUI bundle (Windows and Linux)
+        if: runner.os != 'macOS'
+        uses: Nuitka/Nuitka-Action@99c9d3ab258c7008c0604617d925574101327e5d # main, 2026-05-22
         with:
-          nuitka-version: main
+          nuitka-version: 4.1.3
           script-name: src/ultra_hdr_converter/ui/gui.py
           mode: app-dist
-          output-file: uhdr-gui
           windows-console-mode: disable
           enable-plugins: pyside6
           include-data-dir: src/ultra_hdr_converter/ui/assets=ultra_hdr_converter/ui/assets
           include-package: imagecodecs
           output-dir: dist
           windows-icon-from-ico: src/ultra_hdr_converter/ui/assets/icon.ico
-          macos-app-icon: src/ultra_hdr_converter/ui/assets/icon.icns
           linux-icon: src/ultra_hdr_converter/ui/assets/icon.png
+
+      - name: Build GUI bundle (macOS)
+        if: runner.os == 'macOS'
+        uses: Nuitka/Nuitka-Action@99c9d3ab258c7008c0604617d925574101327e5d # main, 2026-05-22
+        with:
+          nuitka-version: 4.1.3
+          script-name: src/ultra_hdr_converter/ui/gui.py
+          mode: app-dist
+          enable-plugins: pyside6
+          include-data-dir: src/ultra_hdr_converter/ui/assets=ultra_hdr_converter/ui/assets
+          include-package: imagecodecs
+          output-dir: dist
+          macos-app-icon: src/ultra_hdr_converter/ui/assets/icon.icns
           macos-sign-identity: ad-hoc
           macos-signed-app-name: com.ultrahdr.converter
 
@@ -85,17 +105,27 @@ jobs:
             rm -rf dist/gui.dist
           else
             mv dist/gui.dist dist/uhdr-gui
-            if [ -f "dist/uhdr-gui/uhdr-gui.bin" ]; then
-              mv dist/uhdr-gui/uhdr-gui.bin dist/uhdr-gui/uhdr-gui
+            if [ "${{ runner.os }}" = "Windows" ] && [ -f "dist/uhdr-gui/gui.exe" ]; then
+              mv dist/uhdr-gui/gui.exe dist/uhdr-gui/uhdr-gui.exe
+            elif [ -f "dist/uhdr-gui/gui.bin" ]; then
+              mv dist/uhdr-gui/gui.bin dist/uhdr-gui/uhdr-gui
             fi
           fi
+
+      - name: Verify macOS app signature
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          codesign --verify --deep --strict --verbose=2 dist/uhdr-gui.app
 
       - name: Attach license files to bundle (Unix)
         if: runner.os != 'Windows'
         run: |
           if [ "${{ runner.os }}" = "macOS" ]; then
-            cp LICENSE dist/LICENSE
-            cp THIRD_PARTY_NOTICES.txt dist/THIRD_PARTY_NOTICES.txt
+            mkdir -p dist/uhdr-gui-macos
+            mv dist/uhdr-gui.app dist/uhdr-gui-macos/
+            cp LICENSE dist/uhdr-gui-macos/LICENSE
+            cp THIRD_PARTY_NOTICES.txt dist/uhdr-gui-macos/THIRD_PARTY_NOTICES.txt
           else
             cp LICENSE dist/uhdr-gui/LICENSE
             cp THIRD_PARTY_NOTICES.txt dist/uhdr-gui/THIRD_PARTY_NOTICES.txt
@@ -112,7 +142,7 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           if [ "${{ runner.os }}" = "macOS" ]; then
-            zip -r uhdr-gui-${{ matrix.asset_name }}.zip dist/uhdr-gui.app dist/LICENSE dist/THIRD_PARTY_NOTICES.txt
+            ditto -c -k --sequesterRsrc --keepParent dist/uhdr-gui-macos uhdr-gui-${{ matrix.asset_name }}.zip
           else
             zip -r uhdr-gui-${{ matrix.asset_name }}.zip dist/uhdr-gui
           fi

@@ -120,6 +120,67 @@ QPushButton:disabled {{
     border-color: {C_BORDER};
 }}
 
+/* HDR tuning */
+QPushButton#btn_tuning {{
+    background-color: transparent;
+    color: {C_TEXT_MID};
+    border: none;
+    border-radius: 0;
+    padding: 3px 0;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 700;
+}}
+QPushButton#btn_tuning:hover {{ color: {C_ACCENT}; background-color: transparent; }}
+QPushButton#btn_tuning:disabled {{ color: {C_TEXT_DIM}; background-color: transparent; }}
+QWidget#tuning_panel {{
+    background-color: {C_SURFACE};
+    border: 1px solid {C_BORDER};
+    border-radius: 8px;
+}}
+QWidget#tuning_control {{ background-color: transparent; border: none; }}
+QLabel#tuning_label {{
+    background-color: transparent;
+    color: {C_TEXT};
+    font-size: 12px;
+    font-weight: 600;
+}}
+QLabel#tuning_hint {{
+    background-color: transparent;
+    color: {C_TEXT_DIM};
+    font-size: 10px;
+}}
+QDoubleSpinBox {{
+    background-color: {C_ELEVATED};
+    color: {C_TEXT};
+    border: 1px solid {C_BORDER};
+    border-radius: 5px;
+    padding: 3px 6px;
+    min-width: 64px;
+}}
+QDoubleSpinBox:focus {{ border-color: {C_ACCENT}; }}
+QDoubleSpinBox:disabled {{ color: {C_TEXT_DIM}; background-color: {C_SURFACE}; }}
+QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{
+    width: 14px;
+    background-color: {C_CARD};
+    border: none;
+}}
+QSlider::groove:horizontal {{
+    height: 4px;
+    background-color: {C_ELEVATED};
+    border-radius: 2px;
+}}
+QSlider::sub-page:horizontal {{ background-color: {C_ACCENT}; border-radius: 2px; }}
+QSlider::handle:horizontal {{
+    width: 14px;
+    margin: -5px 0;
+    background-color: {C_TEXT};
+    border: 2px solid {C_ACCENT};
+    border-radius: 7px;
+}}
+QSlider::handle:horizontal:hover {{ background-color: #FFFFFF; }}
+QSlider::handle:horizontal:disabled {{ background-color: {C_TEXT_DIM}; border-color: {C_BORDER}; }}
+
 /* Start — accent gradient */
 QPushButton#btn_start {{
     background: qlineargradient(x1:0,y1:0,x2:1,y2:0,

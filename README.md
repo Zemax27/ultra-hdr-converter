@@ -70,7 +70,11 @@ uv sync --extra cli --extra gui
 uv run uhdr-gui
 ```
 
-The GUI runs conversions on a background thread so the interface stays responsive, and shows live progress for each pipeline phase. For a polished desktop experience, download the standalone executable from the [Releases](https://github.com/Zemax27/ultra-hdr-converter/releases) page.
+The GUI runs conversions on a background thread so the interface stays responsive, and shows live progress for each pipeline phase. Expand **HDR Tuning** to adjust highlight threshold, expansion gamma, maximum boost, and bloom weight for the whole batch. Each control includes an effect hint, and the documented defaults preserve the standard conversion behavior. These controls affect synthesized gain maps; an existing embedded gain map is reused without regeneration.
+
+For a polished desktop experience, download the standalone executable from the [Releases](https://github.com/Zemax27/ultra-hdr-converter/releases) page.
+
+> **macOS note:** The current app bundle is ad-hoc signed rather than Apple-notarized. On first launch, trusted users must approve it in **System Settings → Privacy & Security → Open Anyway**. See [CONTRIBUTING.md](CONTRIBUTING.md#release-process) for details.
 
 ## CLI Reference
 

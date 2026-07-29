@@ -19,12 +19,14 @@ from ultra_hdr_converter.ui._gui_style import C_TEXT_DIM, STATUS_COLORS, STYLESH
 _PROGRESS_THROTTLE_SECONDS: float = 0.05
 
 try:
-    from PySide6.QtCore import QThread, Signal, Slot  # type: ignore[import-not-found]
+    from PySide6.QtCore import Qt, QThread, Signal, Slot  # type: ignore[import-not-found]
     from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QIcon  # type: ignore[import-not-found]
     from PySide6.QtWidgets import (  # type: ignore[import-not-found]
         QAbstractItemView,
         QApplication,
+        QDoubleSpinBox,
         QFileDialog,
+        QGridLayout,
         QHBoxLayout,
         QHeaderView,
         QLabel,
@@ -33,6 +35,7 @@ try:
         QProgressBar,
         QPushButton,
         QSizePolicy,
+        QSlider,
         QStackedWidget,
         QTableWidget,
         QTableWidgetItem,
@@ -44,8 +47,6 @@ try:
     HAS_PYSIDE = True
 except ImportError:
     HAS_PYSIDE = False
-
-
 
 
 # Keep the context manager alive for the whole process so any temp file is never
@@ -82,10 +83,16 @@ if HAS_PYSIDE:
         status_update = Signal(int, str)
         finished = Signal(int, int)
 
-        def __init__(self, input_files: list[Path], output_dir: Path | None) -> None:
+        def __init__(
+            self,
+            input_files: list[Path],
+            output_dir: Path | None,
+            gain_map_config: GainMapConfig,
+        ) -> None:
             super().__init__()
             self.input_files = input_files
             self.output_dir = output_dir
+            self.gain_map_config = gain_map_config
             self.is_cancelled = False
 
         def cancel(self) -> None:
@@ -114,10 +121,10 @@ if HAS_PYSIDE:
             def progress_cb(message: str, step: int, total_steps: int) -> None:
                 if self.is_cancelled:
                     raise RuntimeError("Cancelled")
-                
+
                 file_progress[index] = step / total_steps
                 overall_val = sum(file_progress) / total_files
-                
+
                 now = time.monotonic()
                 if now - last_emit_time[0] > _PROGRESS_THROTTLE_SECONDS or step == total_steps:
                     with emit_lock:
@@ -142,7 +149,6 @@ if HAS_PYSIDE:
         def run(self) -> None:
             """Execute the conversion batch. Called by Qt on the worker thread."""
             total_files = len(self.input_files)
-            gain_map_config = GainMapConfig()
             failures = 0
             successes = 0
 
@@ -160,7 +166,7 @@ if HAS_PYSIDE:
                         file_progress,
                         last_emit_time,
                         emit_lock,
-                        gain_map_config,
+                        self.gain_map_config,
                     ): i
                     for i, p in enumerate(self.input_files)
                 }
@@ -206,6 +212,10 @@ if HAS_PYSIDE:
             self.output_dir: Path | None = None
             self.worker: WorkerThread | None = None
             self._queued_paths: set[Path] = set()
+            self.highlight_threshold_spinbox: QDoubleSpinBox
+            self.expansion_gamma_spinbox: QDoubleSpinBox
+            self.max_boost_factor_spinbox: QDoubleSpinBox
+            self.bloom_weight_spinbox: QDoubleSpinBox
 
             self._apply_icon()
             self._setup_ui()
@@ -247,6 +257,7 @@ if HAS_PYSIDE:
             body_layout.setSpacing(10)
 
             body_layout.addLayout(self._build_toolbar())
+            body_layout.addWidget(self._build_tuning_section())
             body_layout.addWidget(self._build_queue_section(), stretch=3)
             body_layout.addWidget(self._build_log_section(), stretch=1)
             body_layout.addWidget(self._build_bottom_bar())
@@ -305,6 +316,141 @@ if HAS_PYSIDE:
 
             return bar
 
+        def _build_tuning_section(self) -> QWidget:
+            section = QWidget()
+            section.setObjectName("tuning_section")
+            layout = QVBoxLayout(section)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(6)
+
+            self.btn_tuning = QPushButton("HDR Tuning  >")
+            self.btn_tuning.setObjectName("btn_tuning")
+            self.btn_tuning.setCheckable(True)
+            self.btn_tuning.toggled.connect(self._toggle_tuning_panel)
+            layout.addWidget(self.btn_tuning)
+
+            self.tuning_panel = QWidget()
+            self.tuning_panel.setObjectName("tuning_panel")
+            controls = QGridLayout(self.tuning_panel)
+            controls.setContentsMargins(12, 10, 12, 10)
+            controls.setHorizontalSpacing(12)
+            controls.setVerticalSpacing(10)
+
+            controls.addWidget(
+                self._build_tuning_control(
+                    "highlight_threshold",
+                    "Highlight threshold",
+                    "Lower values begin the HDR boost earlier, affecting more of the image.",
+                    0.01,
+                    0.99,
+                    0.50,
+                    0.01,
+                ),
+                0,
+                0,
+            )
+            controls.addWidget(
+                self._build_tuning_control(
+                    "expansion_gamma",
+                    "Expansion gamma",
+                    "Higher values stretch highlights more aggressively.",
+                    0.10,
+                    5.00,
+                    2.20,
+                    0.10,
+                ),
+                0,
+                1,
+            )
+            controls.addWidget(
+                self._build_tuning_control(
+                    "max_boost_factor",
+                    "Maximum boost factor",
+                    "Sets the maximum brightness amplification for the brightest pixels.",
+                    0.10,
+                    10.00,
+                    3.00,
+                    0.10,
+                ),
+                1,
+                0,
+            )
+            controls.addWidget(
+                self._build_tuning_control(
+                    "bloom_weight",
+                    "Bloom weight",
+                    "Controls the soft halo around bright areas; set to 0 to disable bloom.",
+                    0.00,
+                    1.00,
+                    0.15,
+                    0.01,
+                ),
+                1,
+                1,
+            )
+            controls.setColumnStretch(0, 1)
+            controls.setColumnStretch(1, 1)
+            self.tuning_panel.setVisible(False)
+            layout.addWidget(self.tuning_panel)
+            return section
+
+        def _build_tuning_control(
+            self,
+            name: str,
+            label_text: str,
+            hint_text: str,
+            minimum: float,
+            maximum: float,
+            default: float,
+            step: float,
+        ) -> QWidget:
+            control = QWidget()
+            control.setObjectName("tuning_control")
+            layout = QVBoxLayout(control)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(4)
+
+            heading = QHBoxLayout()
+            label = QLabel(label_text)
+            label.setObjectName("tuning_label")
+            label.setToolTip(hint_text)
+            heading.addWidget(label)
+            heading.addStretch()
+
+            spinbox = QDoubleSpinBox()
+            spinbox.setObjectName(f"{name}_spinbox")
+            spinbox.setRange(minimum, maximum)
+            spinbox.setDecimals(2)
+            spinbox.setSingleStep(step)
+            spinbox.setValue(default)
+            spinbox.setToolTip(hint_text)
+            heading.addWidget(spinbox)
+            layout.addLayout(heading)
+
+            scale = 100
+            slider = QSlider(Qt.Orientation.Horizontal)
+            slider.setObjectName(f"{name}_slider")
+            slider.setRange(round(minimum * scale), round(maximum * scale))
+            slider.setSingleStep(max(1, round(step * scale)))
+            slider.setValue(round(default * scale))
+            slider.setToolTip(hint_text)
+            slider.valueChanged.connect(lambda value, target=spinbox: target.setValue(value / scale))
+            spinbox.valueChanged.connect(lambda value, target=slider: target.setValue(round(value * scale)))
+            layout.addWidget(slider)
+
+            hint = QLabel(hint_text)
+            hint.setObjectName("tuning_hint")
+            hint.setWordWrap(True)
+            layout.addWidget(hint)
+
+            setattr(self, f"{name}_spinbox", spinbox)
+            setattr(self, f"{name}_slider", slider)
+            return control
+
+        def _toggle_tuning_panel(self, is_expanded: bool) -> None:
+            self.tuning_panel.setVisible(is_expanded)
+            self.btn_tuning.setText("HDR Tuning  v" if is_expanded else "HDR Tuning  >")
+
         def _build_queue_section(self) -> QWidget:
             container = QWidget()
             layout = QVBoxLayout(container)
@@ -321,9 +467,7 @@ if HAS_PYSIDE:
             self._drop_hint = QLabel("Drop JPEG files here  ·  or click  ＋ Add Photos")
             self._drop_hint.setObjectName("drop_hint")
             self._drop_hint.setAlignment(self._drop_hint.alignment())
-            from PySide6.QtCore import Qt as _Qt  # noqa: PLC0415 — local import inside guard
-
-            self._drop_hint.setAlignment(_Qt.AlignmentFlag.AlignCenter)
+            self._drop_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self._queue_stack.addWidget(self._drop_hint)  # index 0
 
             self.table = QTableWidget(0, 3)
@@ -503,12 +647,20 @@ if HAS_PYSIDE:
             self.btn_add.setEnabled(False)
             self.btn_remove.setEnabled(False)
             self.btn_clear.setEnabled(False)
+            self.tuning_panel.setEnabled(False)
+            self.btn_tuning.setEnabled(False)
             self.progress_bar.setValue(0)
             self.lbl_pct.setText("0%")
             self.log_text.clear()
             self.lbl_status.setText("Starting…")
 
-            self.worker = WorkerThread(input_files, self.output_dir)
+            gain_map_config = GainMapConfig(
+                highlight_threshold=self.highlight_threshold_spinbox.value(),
+                expansion_gamma=self.expansion_gamma_spinbox.value(),
+                max_boost_factor=self.max_boost_factor_spinbox.value(),
+                bloom_weight=self.bloom_weight_spinbox.value(),
+            )
+            self.worker = WorkerThread(input_files, self.output_dir, gain_map_config)
             self.worker.progress.connect(self._on_progress)
             self.worker.log.connect(self._on_log)
             self.worker.status_update.connect(self._on_status_update)
@@ -548,6 +700,8 @@ if HAS_PYSIDE:
             self.btn_add.setEnabled(True)
             self.btn_remove.setEnabled(True)
             self.btn_clear.setEnabled(True)
+            self.tuning_panel.setEnabled(True)
+            self.btn_tuning.setEnabled(True)
 
             if self.worker and not self.worker.is_cancelled:
                 self.progress_bar.setValue(1000)
