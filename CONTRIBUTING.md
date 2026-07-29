@@ -148,18 +148,15 @@ Outputs to `dist/` as both `.whl` and `.tar.gz`.
 For local testing or distribution:
 
 ```bash
-uv run python -m nuitka --standalone \
-    --output-filename=uhdr-gui \
+uv run python -m nuitka --mode=app-dist \
     --windows-console-mode=disable \
-    --macos-create-app-bundle \
-    --macos-app-mode=gui \
     --enable-plugin=pyside6 \
     --include-data-dir="src/ultra_hdr_converter/ui/assets=ultra_hdr_converter/ui/assets" \
     --include-package=imagecodecs \
     src/ultra_hdr_converter/ui/gui.py
 ```
 
-See `pyproject.toml` for Nuitka options. The release workflow automates this with cross-platform builds.
+In `app-dist` mode Nuitka creates a standalone directory on Windows and Linux and an application bundle on macOS. The release workflow automates these cross-platform builds.
 
 ## CI/CD
 
@@ -179,7 +176,17 @@ Releases are automated via [.github/workflows/release.yml](.github/workflows/rel
 1. Update version in `pyproject.toml` (follow [SemVer](https://semver.org/))
 2. Update `CHANGELOG.md` (create if missing)
 3. Push a tag: `git tag v0.2.0 && git push origin v0.2.0`
-4. GitHub Actions builds wheels, creates release notes, and attaches assets
+4. GitHub Actions validates and builds the Linux, Windows, and macOS GUI archives, then attaches them to the release
+
+The macOS application bundle is ad-hoc signed because the project does not currently have an Apple Developer ID certificate. This satisfies macOS code-signing structure requirements, but the app is not notarized and Gatekeeper will block its first normal launch after download.
+
+Users who trust the downloaded release can approve only this application without disabling Gatekeeper globally:
+
+1. Try to open `uhdr-gui.app` once and dismiss the warning.
+2. Open **System Settings → Privacy & Security**.
+3. In the Security section, click **Open Anyway** for Ultra HDR Converter, then confirm **Open**.
+
+Alternatively, advanced users can remove quarantine from only this app with `xattr -dr com.apple.quarantine /path/to/uhdr-gui.app`. Avoid disabling Gatekeeper system-wide. If a Developer ID becomes available later, restore Developer ID signing and Apple notarization in the release workflow.
 
 ## Reporting Issues
 
