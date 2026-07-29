@@ -253,10 +253,10 @@ if HAS_PYSIDE:
             body = QWidget()
             body.setObjectName("body")
             body_layout = QVBoxLayout(body)
-            body_layout.setContentsMargins(18, 14, 18, 14)
-            body_layout.setSpacing(10)
+            body_layout.setContentsMargins(24, 20, 24, 20)
+            body_layout.setSpacing(14)
 
-            body_layout.addLayout(self._build_toolbar())
+            body_layout.addWidget(self._build_toolbar())
             body_layout.addWidget(self._build_tuning_section())
             body_layout.addWidget(self._build_queue_section(), stretch=3)
             body_layout.addWidget(self._build_log_section(), stretch=1)
@@ -268,37 +268,52 @@ if HAS_PYSIDE:
             header = QWidget()
             header.setObjectName("header")
             row = QHBoxLayout(header)
-            row.setContentsMargins(18, 0, 18, 0)
-            row.setSpacing(10)
+            row.setContentsMargins(24, 0, 24, 0)
+            row.setSpacing(12)
 
             if _ICON_PATH is not None:
                 icon_lbl = QLabel()
-                icon_lbl.setPixmap(QIcon(str(_ICON_PATH)).pixmap(24, 24))
+                icon_lbl.setObjectName("app_icon")
+                icon_lbl.setPixmap(QIcon(str(_ICON_PATH)).pixmap(32, 32))
                 row.addWidget(icon_lbl)
+
+            brand = QWidget()
+            brand.setObjectName("brand")
+            brand_layout = QVBoxLayout(brand)
+            brand_layout.setContentsMargins(0, 0, 0, 0)
+            brand_layout.setSpacing(1)
 
             title = QLabel("Ultra HDR Converter")
             title.setObjectName("app_title")
-            row.addWidget(title)
+            brand_layout.addWidget(title)
+
+            subtitle = QLabel("Create JPEGs with gain maps for HDR displays")
+            subtitle.setObjectName("app_subtitle")
+            brand_layout.addWidget(subtitle)
+            row.addWidget(brand)
 
             row.addStretch()
 
-            version = QLabel("v0.1.0")
-            version.setObjectName("version_badge")
-            row.addWidget(version)
-
             return header
 
-        def _build_toolbar(self) -> QHBoxLayout:
-            bar = QHBoxLayout()
-            bar.setSpacing(6)
+        def _build_toolbar(self) -> QWidget:
+            toolbar = QWidget()
+            toolbar.setObjectName("toolbar")
+            bar = QHBoxLayout(toolbar)
+            bar.setContentsMargins(10, 8, 10, 8)
+            bar.setSpacing(8)
 
-            self.btn_add = QPushButton("＋  Add Photos")
+            self.btn_add = QPushButton("Add photos")
+            self.btn_add.setObjectName("btn_add")
+            self.btn_add.setToolTip("Add JPEG images to the conversion queue")
             self.btn_add.clicked.connect(self._add_photos)
 
-            self.btn_remove = QPushButton("✕  Remove")
+            self.btn_remove = QPushButton("Remove")
+            self.btn_remove.setToolTip("Remove the selected photos from the queue")
             self.btn_remove.clicked.connect(self._remove_selected)
 
-            self.btn_clear = QPushButton("⊘  Clear")
+            self.btn_clear = QPushButton("Clear")
+            self.btn_clear.setToolTip("Remove all photos from the queue")
             self.btn_clear.clicked.connect(self._clear_queue)
 
             bar.addWidget(self.btn_add)
@@ -306,15 +321,29 @@ if HAS_PYSIDE:
             bar.addWidget(self.btn_clear)
             bar.addStretch()
 
-            self.lbl_output = QLabel("Output: alongside original files")
-            self.lbl_output.setObjectName("output_label")
-            bar.addWidget(self.lbl_output)
+            output_group = QWidget()
+            output_group.setObjectName("output_group")
+            output_layout = QVBoxLayout(output_group)
+            output_layout.setContentsMargins(0, 0, 0, 0)
+            output_layout.setSpacing(0)
 
-            self.btn_output = QPushButton("📁  Output Folder")
+            output_caption = QLabel("OUTPUT LOCATION")
+            output_caption.setObjectName("output_caption")
+            output_layout.addWidget(output_caption)
+
+            self.lbl_output = QLabel("Alongside original files")
+            self.lbl_output.setObjectName("output_label")
+            self.lbl_output.setToolTip("Converted files will be saved beside each source image")
+            output_layout.addWidget(self.lbl_output)
+            bar.addWidget(output_group)
+
+            self.btn_output = QPushButton("Choose folder")
+            self.btn_output.setObjectName("btn_output")
+            self.btn_output.setToolTip("Choose a folder for all converted images")
             self.btn_output.clicked.connect(self._set_output)
             bar.addWidget(self.btn_output)
 
-            return bar
+            return toolbar
 
         def _build_tuning_section(self) -> QWidget:
             section = QWidget()
@@ -323,9 +352,10 @@ if HAS_PYSIDE:
             layout.setContentsMargins(0, 0, 0, 0)
             layout.setSpacing(6)
 
-            self.btn_tuning = QPushButton("HDR Tuning  >")
+            self.btn_tuning = QPushButton("HDR tuning  |  Show")
             self.btn_tuning.setObjectName("btn_tuning")
             self.btn_tuning.setCheckable(True)
+            self.btn_tuning.setToolTip("Adjust how highlights are expanded into the Ultra HDR gain map")
             self.btn_tuning.toggled.connect(self._toggle_tuning_panel)
             layout.addWidget(self.btn_tuning)
 
@@ -449,26 +479,46 @@ if HAS_PYSIDE:
 
         def _toggle_tuning_panel(self, is_expanded: bool) -> None:
             self.tuning_panel.setVisible(is_expanded)
-            self.btn_tuning.setText("HDR Tuning  v" if is_expanded else "HDR Tuning  >")
+            self.btn_tuning.setText("HDR tuning  |  Hide" if is_expanded else "HDR tuning  |  Show")
 
         def _build_queue_section(self) -> QWidget:
             container = QWidget()
+            container.setObjectName("queue_section")
             layout = QVBoxLayout(container)
             layout.setContentsMargins(0, 0, 0, 0)
             layout.setSpacing(6)
 
-            lbl = QLabel("QUEUE")
-            lbl.setObjectName("section_label")
-            layout.addWidget(lbl)
+            heading = QHBoxLayout()
+            lbl = QLabel("Conversion queue")
+            lbl.setObjectName("section_title")
+            heading.addWidget(lbl)
+            heading.addStretch()
+            self.lbl_queue_count = QLabel("0 photos")
+            self.lbl_queue_count.setObjectName("section_meta")
+            heading.addWidget(self.lbl_queue_count)
+            layout.addLayout(heading)
 
             # Stacked widget: index 0 = drop hint, index 1 = table
             self._queue_stack = QStackedWidget()
 
-            self._drop_hint = QLabel("Drop JPEG files here  ·  or click  ＋ Add Photos")
+            drop_zone = QWidget()
+            drop_zone.setObjectName("drop_zone")
+            drop_layout = QVBoxLayout(drop_zone)
+            drop_layout.setContentsMargins(20, 20, 20, 20)
+            drop_layout.setSpacing(5)
+            drop_layout.addStretch()
+
+            self._drop_hint = QLabel("Drop photos here")
             self._drop_hint.setObjectName("drop_hint")
-            self._drop_hint.setAlignment(self._drop_hint.alignment())
             self._drop_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self._queue_stack.addWidget(self._drop_hint)  # index 0
+            drop_layout.addWidget(self._drop_hint)
+
+            drop_detail = QLabel("JPEG files only, or use Add photos")
+            drop_detail.setObjectName("drop_detail")
+            drop_detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            drop_layout.addWidget(drop_detail)
+            drop_layout.addStretch()
+            self._queue_stack.addWidget(drop_zone)  # index 0
 
             self.table = QTableWidget(0, 3)
             self.table.setHorizontalHeaderLabels(["Filename", "Path", "Status"])
@@ -489,18 +539,21 @@ if HAS_PYSIDE:
 
         def _build_log_section(self) -> QWidget:
             container = QWidget()
+            container.setObjectName("log_section")
             layout = QVBoxLayout(container)
             layout.setContentsMargins(0, 0, 0, 0)
             layout.setSpacing(6)
 
             hdr = QHBoxLayout()
-            lbl = QLabel("CONSOLE")
-            lbl.setObjectName("section_label")
+            lbl = QLabel("Activity")
+            lbl.setObjectName("section_title")
             hdr.addWidget(lbl)
             hdr.addStretch()
 
             btn_clear_log = QPushButton("Clear")
-            btn_clear_log.setFixedWidth(60)
+            btn_clear_log.setObjectName("btn_quiet")
+            btn_clear_log.setToolTip("Clear the activity log")
+            btn_clear_log.setFixedWidth(64)
             btn_clear_log.clicked.connect(self._clear_log)
             hdr.addWidget(btn_clear_log)
             layout.addLayout(hdr)
@@ -512,9 +565,10 @@ if HAS_PYSIDE:
 
         def _build_bottom_bar(self) -> QWidget:
             container = QWidget()
+            container.setObjectName("bottom_bar")
             layout = QVBoxLayout(container)
-            layout.setContentsMargins(0, 4, 0, 0)
-            layout.setSpacing(6)
+            layout.setContentsMargins(14, 12, 14, 12)
+            layout.setSpacing(9)
 
             # Progress row
             prog_row = QHBoxLayout()
@@ -541,8 +595,9 @@ if HAS_PYSIDE:
             self.btn_cancel.setEnabled(False)
             action_row.addWidget(self.btn_cancel)
 
-            self.btn_start = QPushButton("▶  Start Conversion")
+            self.btn_start = QPushButton("Start conversion")
             self.btn_start.setObjectName("btn_start")
+            self.btn_start.setToolTip("Convert every photo in the queue")
             self.btn_start.clicked.connect(self._start_conversion)
             action_row.addWidget(self.btn_start)
 
@@ -553,7 +608,9 @@ if HAS_PYSIDE:
 
         def _update_empty_state(self) -> None:
             """Switch the stacked widget between drop hint (empty) and table."""
-            self._queue_stack.setCurrentIndex(0 if self.table.rowCount() == 0 else 1)
+            photo_count = self.table.rowCount()
+            self._queue_stack.setCurrentIndex(0 if photo_count == 0 else 1)
+            self.lbl_queue_count.setText(f"{photo_count} photo{'s' if photo_count != 1 else ''}")
 
         def _clear_log(self) -> None:
             self.log_text.clear()
@@ -612,7 +669,8 @@ if HAS_PYSIDE:
             dir_path = QFileDialog.getExistingDirectory(self, "Select Output Directory")
             if dir_path:
                 self.output_dir = Path(dir_path)
-                self.lbl_output.setText(f"Output: {self.output_dir}")
+                self.lbl_output.setText(str(self.output_dir))
+                self.lbl_output.setToolTip(str(self.output_dir))
 
         def _remove_selected(self) -> None:
             rows = sorted({idx.row() for idx in self.table.selectedIndexes()}, reverse=True)

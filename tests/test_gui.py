@@ -55,6 +55,39 @@ def test_tuning_controls_expose_defaults_ranges_and_hints(window: gui.UltraHdrGu
     assert window.expansion_gamma_slider.value() == expected_gamma_slider_value
 
 
+def test_redesigned_queue_switches_between_empty_and_populated_states(
+    window: gui.UltraHdrGui,
+    tmp_path: Path,
+) -> None:
+    assert window._queue_stack.currentIndex() == 0
+    assert window._drop_hint.text() == "Drop photos here"
+    assert window.lbl_queue_count.text() == "0 photos"
+    assert window.btn_add.toolTip()
+    assert window.btn_start.text() == "Start conversion"
+
+    input_path = tmp_path / "photo.jpg"
+    input_path.write_bytes(b"jpeg")
+    window._add_file_to_table(input_path)
+
+    assert window._queue_stack.currentIndex() == 1
+    assert window.lbl_queue_count.text() == "1 photo"
+
+    window._clear_queue()
+
+    assert window._queue_stack.currentIndex() == 0
+    assert window.lbl_queue_count.text() == "0 photos"
+
+
+def test_tuning_toggle_communicates_expansion_state(window: gui.UltraHdrGui) -> None:
+    assert window.btn_tuning.text() == "HDR tuning  |  Show"
+
+    window.btn_tuning.setChecked(True)
+    assert window.btn_tuning.text() == "HDR tuning  |  Hide"
+
+    window.btn_tuning.setChecked(False)
+    assert window.btn_tuning.text() == "HDR tuning  |  Show"
+
+
 def test_start_conversion_forwards_selected_gain_map_config(
     window: gui.UltraHdrGui,
     monkeypatch: pytest.MonkeyPatch,
