@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ultra-hdr-converter"
-version = "0.1.0"
-description = "Ultra HDR JPEG conversion pipeline using imagecodecs and custom gain maps."
+version = "0.2.0"
+description = "Ultra HDR conversion pipeline for JPEG and AVIF using imagecodecs and custom gain maps."
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.12"

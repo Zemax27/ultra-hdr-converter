@@ -1,9 +1,8 @@
-"""I/O and decoding helpers for SDR and gain map assets."""
+"""JPEG container parsing, decoding and encoding helpers."""
 
 from __future__ import annotations
 
 import struct
-from pathlib import Path
 from typing import Literal
 
 import imagecodecs
@@ -32,18 +31,13 @@ MIN_SEGMENT_LENGTH = 2
 ICC_SIGNATURE = b"ICC_PROFILE\x00"
 ICC_HEADER_BYTES = 2
 ICC_MIN_SEQUENCE = 1
+ICC_MAX_CHUNKS = 255
 
-
-def read_bytes(path: Path | str) -> bytes:
-    """Read file contents as bytes."""
-    return Path(path).read_bytes()
-
-
-def write_bytes(path: Path | str, data: bytes) -> None:
-    """Write bytes to disk, creating parent folders if needed."""
-    output = Path(path)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_bytes(data)
+# A JPEG segment length field is 16-bit and counts itself, so the payload of an
+# APP2 segment is capped at 65533 bytes.  The ICC marker header consumes the
+# signature plus a sequence/count pair.
+MAX_SEGMENT_PAYLOAD = 0xFFFF - SEGMENT_LENGTH_BYTES
+ICC_MAX_CHUNK_BYTES = MAX_SEGMENT_PAYLOAD - len(ICC_SIGNATURE) - ICC_HEADER_BYTES
 
 
 def decode_jpeg(jpeg_bytes: bytes) -> np.ndarray:
@@ -52,6 +46,88 @@ def decode_jpeg(jpeg_bytes: bytes) -> np.ndarray:
         return np.asarray(imagecodecs.jpeg_decode(jpeg_bytes))
     except Exception as exc:
         raise JpegStructureError(f"JPEG decoding failed: {exc}") from exc
+
+
+def _build_icc_segments(icc_profile: bytes) -> bytes:
+    """Build the APP2 segment chain carrying an ICC profile.
+
+    Follows the ICC JPEG embedding convention: the profile is split across
+    numbered ``ICC_PROFILE`` APP2 segments.
+
+    Args:
+        icc_profile: Raw ICC profile bytes.
+
+    Returns:
+        Concatenated APP2 segments, or empty bytes for an empty profile.
+
+    Raises:
+        JpegStructureError: If the profile needs more than 255 chunks.
+    """
+    if not icc_profile:
+        return b""
+
+    chunks = [
+        icc_profile[offset : offset + ICC_MAX_CHUNK_BYTES]
+        for offset in range(0, len(icc_profile), ICC_MAX_CHUNK_BYTES)
+    ]
+    if len(chunks) > ICC_MAX_CHUNKS:
+        raise JpegStructureError(
+            f"ICC profile is too large to embed in JPEG ({len(icc_profile)} bytes needs {len(chunks)} chunks)."
+        )
+
+    segments = b""
+    for index, chunk in enumerate(chunks, start=ICC_MIN_SEQUENCE):
+        payload = ICC_SIGNATURE + bytes((index, len(chunks))) + chunk
+        segments += b"\xff\xe2" + struct.pack(">H", SEGMENT_LENGTH_BYTES + len(payload)) + payload
+    return segments
+
+
+def encode_jpeg(image: np.ndarray, quality: int = 95, icc_profile: bytes | None = None) -> bytes:
+    """Encode a raster image as a baseline JPEG, optionally embedding an ICC profile.
+
+    Used when the pipeline has to produce a JPEG base image from a source that
+    was not itself a JPEG; JPEG inputs are always preserved byte-for-byte
+    instead.
+
+    Args:
+        image: Pixel array of shape (H, W) or (H, W, 3), dtype uint8.
+        quality: JPEG quality level (0-100).
+        icc_profile: Optional ICC profile to embed as APP2 segments.
+
+    Returns:
+        Encoded JPEG bytes.
+
+    Raises:
+        JpegStructureError: If encoding fails or the ICC profile cannot be embedded.
+    """
+    try:
+        encoded = bytes(imagecodecs.jpeg_encode(np.ascontiguousarray(image), level=quality))
+    except Exception as exc:
+        raise JpegStructureError(f"JPEG encoding failed: {exc}") from exc
+
+    if not icc_profile:
+        return encoded
+
+    if encoded[:SEGMENT_LENGTH_BYTES] != JPEG_SOI:
+        raise JpegStructureError("Encoded JPEG is missing its SOI marker.")
+
+    # Place the ICC segments after any leading APP0/APP1 markers.
+    insertion_point = _find_app_insertion_point(encoded)
+    return encoded[:insertion_point] + _build_icc_segments(icc_profile) + encoded[insertion_point:]
+
+
+def _find_app_insertion_point(jpeg_bytes: bytes) -> int:
+    """Return the offset just after SOI and any leading APP0/APP1 segments."""
+    offset = SEGMENT_LENGTH_BYTES
+    while offset + 3 < len(jpeg_bytes):
+        if jpeg_bytes[offset] != MARKER_PREFIX:
+            break
+        marker_pos = _skip_marker_prefixes(jpeg_bytes, offset + 1)
+        if marker_pos >= len(jpeg_bytes) or jpeg_bytes[marker_pos] not in (0xE0, APP1_MARKER):
+            break
+        segment_length = int.from_bytes(jpeg_bytes[marker_pos + 1 : marker_pos + 3], "big")
+        offset = marker_pos + 1 + segment_length
+    return offset
 
 
 def _skip_marker_prefixes(jpeg_bytes: bytes, offset: int) -> int:
@@ -175,15 +251,7 @@ def extract_icc_profile(jpeg_bytes: bytes) -> bytes | None:
     return _extract_icc_from_jpeg_app2(jpeg_bytes)
 
 
-def load_gain_map(path: Path | str) -> np.ndarray:
-    """Load a gain map from .npy or standard image codecs."""
-    source = Path(path)
-    if source.suffix.lower() == ".npy":
-        return np.asarray(np.load(source))
-    return np.asarray(imagecodecs.imread(str(source)))
-
-
-def has_ultrahdr_metadata(jpeg_bytes: bytes) -> bool:
+def has_gain_map_metadata(jpeg_bytes: bytes) -> bool:
     """Check if the JPEG contains ISO 21496-1 or Adobe UltraHDR gain map metadata.
 
     Detects both the ISO binary metadata (APP2 with ``urn:iso:std:iso:ts:21496:-1``)

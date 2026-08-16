@@ -3,11 +3,11 @@ import struct
 import numpy as np
 import pytest
 
-from ultra_hdr_converter.core.ultrahdr_encoder import (
+from ultra_hdr_converter.core.jpeg_encoder import (
     _find_injection_point,
     _inject_after_soi,
     _strip_mpf_segments,
-    encode_ultrahdr,
+    encode_ultrahdr_jpeg,
 )
 from ultra_hdr_converter.errors import JpegStructureError
 
@@ -18,17 +18,17 @@ _ISO_NAMESPACE = b"urn:iso:std:iso:ts:21496:-1\x00"
 _FAKE_GM_MARKER = b"FAKEGM"
 
 
-def test_encode_ultrahdr_produces_valid_structure(monkeypatch: object) -> None:
+def test_encode_ultrahdr_jpeg_produces_valid_structure(monkeypatch: object) -> None:
     def _fake_jpeg_encode(data: np.ndarray, **_kwargs: object) -> bytes:
         return b"\xff\xd8GAINMAP\xff\xd9"
 
     monkeypatch.setattr(
-        "ultra_hdr_converter.core.ultrahdr_encoder.imagecodecs.jpeg_encode",
+        "ultra_hdr_converter.core.jpeg_encoder.imagecodecs.jpeg_encode",
         _fake_jpeg_encode,
     )
 
     gain_map = np.full((4, 4), 128, dtype=np.uint8)
-    result = encode_ultrahdr(sdr_jpeg=_MINIMAL_JPEG, gain_map=gain_map)
+    result = encode_ultrahdr_jpeg(sdr_jpeg=_MINIMAL_JPEG, gain_map=gain_map)
 
     assert result[:2] == b"\xff\xd8"
     assert b"hdrgm:Version" in result
@@ -38,32 +38,32 @@ def test_encode_ultrahdr_produces_valid_structure(monkeypatch: object) -> None:
     assert result.endswith(b"GAINMAP\xff\xd9")
 
 
-def test_encode_ultrahdr_preserves_original_jpeg(monkeypatch: object) -> None:
+def test_encode_ultrahdr_jpeg_preserves_original_jpeg(monkeypatch: object) -> None:
     def _fake_jpeg_encode(data: np.ndarray, **_kwargs: object) -> bytes:
         return b"\xff\xd8GM\xff\xd9"
 
     monkeypatch.setattr(
-        "ultra_hdr_converter.core.ultrahdr_encoder.imagecodecs.jpeg_encode",
+        "ultra_hdr_converter.core.jpeg_encoder.imagecodecs.jpeg_encode",
         _fake_jpeg_encode,
     )
 
     gain_map = np.zeros((2, 2), dtype=np.uint8)
-    result = encode_ultrahdr(sdr_jpeg=_MINIMAL_JPEG, gain_map=gain_map)
+    result = encode_ultrahdr_jpeg(sdr_jpeg=_MINIMAL_JPEG, gain_map=gain_map)
 
     assert b"JFIF" in result
 
 
-def test_encode_ultrahdr_mpf_offset_is_consistent(monkeypatch: object) -> None:
+def test_encode_ultrahdr_jpeg_mpf_offset_is_consistent(monkeypatch: object) -> None:
     def _fake_jpeg_encode(data: np.ndarray, **_kwargs: object) -> bytes:
         return b"\xff\xd8" + _FAKE_GM_MARKER + b"\xff\xd9"
 
     monkeypatch.setattr(
-        "ultra_hdr_converter.core.ultrahdr_encoder.imagecodecs.jpeg_encode",
+        "ultra_hdr_converter.core.jpeg_encoder.imagecodecs.jpeg_encode",
         _fake_jpeg_encode,
     )
 
     gain_map = np.zeros((2, 2), dtype=np.uint8)
-    result = encode_ultrahdr(sdr_jpeg=_MINIMAL_JPEG, gain_map=gain_map)
+    result = encode_ultrahdr_jpeg(sdr_jpeg=_MINIMAL_JPEG, gain_map=gain_map)
 
     gm_iso_pos = result.rfind(_ISO_NAMESPACE)
     assert gm_iso_pos > 0
@@ -83,17 +83,17 @@ def test_encode_ultrahdr_mpf_offset_is_consistent(monkeypatch: object) -> None:
     assert ii_offset + stored_offset == gm_start
 
 
-def test_encode_ultrahdr_iso_segments(monkeypatch: object) -> None:
+def test_encode_ultrahdr_jpeg_iso_segments(monkeypatch: object) -> None:
     def _fake_jpeg_encode(data: np.ndarray, **_kwargs: object) -> bytes:
         return b"\xff\xd8" + _FAKE_GM_MARKER + b"\xff\xd9"
 
     monkeypatch.setattr(
-        "ultra_hdr_converter.core.ultrahdr_encoder.imagecodecs.jpeg_encode",
+        "ultra_hdr_converter.core.jpeg_encoder.imagecodecs.jpeg_encode",
         _fake_jpeg_encode,
     )
 
     gain_map = np.zeros((2, 2), dtype=np.uint8)
-    result = encode_ultrahdr(sdr_jpeg=_MINIMAL_JPEG, gain_map=gain_map)
+    result = encode_ultrahdr_jpeg(sdr_jpeg=_MINIMAL_JPEG, gain_map=gain_map)
 
     gm_marker_pos = result.rfind(_FAKE_GM_MARKER)
     gm_start = result.rfind(b"\xff\xd8", 0, gm_marker_pos)

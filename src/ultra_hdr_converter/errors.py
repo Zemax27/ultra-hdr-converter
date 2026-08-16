@@ -9,6 +9,10 @@ class AlreadyUltraHDRError(UltraHdrError):
     """Image already contains Ultra HDR metadata."""
 
 
+class UnsupportedFormatError(UltraHdrError):
+    """Image container format is not supported by the pipeline."""
+
+
 class GainMapError(UltraHdrError):
     """Base exception for gain map validation and generation errors."""
 
@@ -34,5 +38,13 @@ class ColorTransformError(UltraHdrError):
     """ICC color management transform or profile operation failed."""
 
 
-class JpegStructureError(UltraHdrError):
+class ImageStructureError(UltraHdrError):
+    """Container byte stream is missing required structures or is malformed."""
+
+
+class JpegStructureError(ImageStructureError):
     """JPEG byte stream is missing required markers or is malformed."""
+
+
+class AvifStructureError(ImageStructureError):
+    """AVIF/ISOBMFF byte stream is missing required boxes or is malformed."""

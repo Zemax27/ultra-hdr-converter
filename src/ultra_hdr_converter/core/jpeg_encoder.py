@@ -1,4 +1,4 @@
-"""Ultra HDR encoder — API-4 composition.
+"""Ultra HDR JPEG encoder — API-4 composition.
 
 Composes an Ultra HDR JPEG by combining the original compressed SDR JPEG
 with a JPEG-encoded gain map and ISO 21496-1 metadata.  This preserves
@@ -8,11 +8,11 @@ the original SDR encoding quality and embedded ICC profile.
 from __future__ import annotations
 
 import struct
-from fractions import Fraction
 
 import imagecodecs
 import numpy as np
 
+from ultra_hdr_converter.core.iso21496 import ISO_NAMESPACE, GainMapMetadata
 from ultra_hdr_converter.errors import JpegStructureError
 
 COLOR_NDIM = 3
@@ -48,11 +48,11 @@ _XMP_TEMPLATE = (
 )
 
 # ---- ISO 21496-1 binary gain map metadata ------------------------------------
+#
+# The metadata blob itself is built in ``core.iso21496`` and shared with the
+# AVIF encoder; only its JPEG carriage (APP2 segments) lives here.
 
-_ISO_NAMESPACE = b"urn:iso:std:iso:ts:21496:-1\x00"
-
-# Maximum denominator when converting floats to rationals.
-_FRACTION_DENOM_LIMIT = 100000
+_ISO_NAMESPACE = ISO_NAMESPACE
 
 # ---- MPF (Multi-Picture Format, CIPA DC-007) ---------------------------------
 
@@ -71,14 +71,6 @@ _ATTR_SECONDARY = 0x00000000
 
 
 # ---- Helpers -----------------------------------------------------------------
-
-
-def _float_to_fraction(value: float) -> tuple[int, int]:
-    """Convert a float to a rational (numerator, denominator)."""
-    if value == 0.0:
-        return (0, 1)
-    frac = Fraction(value).limit_denominator(_FRACTION_DENOM_LIMIT)
-    return (frac.numerator, frac.denominator)
 
 
 def _encode_gain_map_jpeg(gain_map: np.ndarray, quality: int) -> bytes:
@@ -119,67 +111,12 @@ def _build_iso_version_segment() -> bytes:
     return b"\xff\xe2" + struct.pack(">H", length) + payload
 
 
-def _build_iso_metadata_bytes(max_content_boost: float) -> bytes:
-    """Encode ISO 21496-1 gain map metadata as a binary blob.
-
-    Field semantics (when base rendition is SDR, forward direction):
-      - gainMapMin/Max:       log2 of the linear content boost range.
-      - gamma:                gain map transfer function exponent.
-      - baseOffset:           SDR offset (avoids division by zero).
-      - alternateOffset:      HDR offset.
-      - baseHdrHeadroom:      log2(hdr_capacity_min), typically 0.
-      - alternateHdrHeadroom: log2(hdr_capacity_max), equals max_content_boost.
-
-    All values stored as big-endian rational numbers (numerator / denominator).
-    """
-    buf = bytearray()
-
-    # Version header: min_version=0, writer_version=0.
-    buf += struct.pack(">HH", 0, 0)
-
-    # Flags: single channel, no base color space, forward direction,
-    #         no common denominator.
-    buf += struct.pack(">B", 0)
-
-    # baseHdrHeadroom = log2(hdrCapacityMin) = 0.0
-    n, d = _float_to_fraction(0.0)
-    buf += struct.pack(">II", n, d)
-
-    # alternateHdrHeadroom = log2(hdrCapacityMax) = max_content_boost
-    n, d = _float_to_fraction(max_content_boost)
-    buf += struct.pack(">II", n, d)
-
-    # ---- Per-channel fields (single channel) ----
-
-    # gainMapMin = log2(minContentBoost) = 0.0
-    n, d = _float_to_fraction(0.0)
-    buf += struct.pack(">iI", n, d)
-
-    # gainMapMax = log2(maxContentBoost) = max_content_boost
-    n, d = _float_to_fraction(max_content_boost)
-    buf += struct.pack(">iI", n, d)
-
-    # gamma = 1.0
-    n, d = _float_to_fraction(1.0)
-    buf += struct.pack(">II", n, d)
-
-    # baseOffset = offsetSdr = 1/64
-    n, d = _float_to_fraction(1.0 / 64.0)
-    buf += struct.pack(">iI", n, d)
-
-    # alternateOffset = offsetHdr = 1/64
-    n, d = _float_to_fraction(1.0 / 64.0)
-    buf += struct.pack(">iI", n, d)
-
-    return bytes(buf)
-
-
 def _build_iso_metadata_segment(max_content_boost: float) -> bytes:
     """Build an APP2 ISO 21496-1 segment with full gain map metadata.
 
     This segment is injected into the gain map JPEG.
     """
-    metadata = _build_iso_metadata_bytes(max_content_boost)
+    metadata = GainMapMetadata(max_content_boost=max_content_boost).to_bytes()
     payload = _ISO_NAMESPACE + metadata
     length = 2 + len(payload)
     return b"\xff\xe2" + struct.pack(">H", length) + payload
@@ -347,10 +284,10 @@ def _strip_mpf_segments(jpeg: bytes) -> bytes:
 # ---- Public API ---------------------------------------------------------------
 
 
-def encode_ultrahdr(
+def encode_ultrahdr_jpeg(
     sdr_jpeg: bytes,
     gain_map: np.ndarray,
-    jpeg_quality: int = 95,
+    quality: int = 95,
     max_content_boost: float = 3.0,
 ) -> bytes:
     """
@@ -364,7 +301,7 @@ def encode_ultrahdr(
     Args:
         sdr_jpeg: Original compressed SDR JPEG bytes.
         gain_map: Single-channel uint8 gain map array.
-        jpeg_quality: JPEG quality level for gain map compression.
+        quality: JPEG quality level for gain map compression.
         max_content_boost: Maximum HDR content boost in stops, written
             into the gain map metadata.
 
@@ -372,7 +309,7 @@ def encode_ultrahdr(
         Composed Ultra HDR JPEG bytes.
     """
     # JPEG-encode the gain map, then inject ISO 21496-1 full metadata.
-    raw_gm_jpeg = _encode_gain_map_jpeg(gain_map, quality=jpeg_quality)
+    raw_gm_jpeg = _encode_gain_map_jpeg(gain_map, quality=quality)
     iso_full_segment = _build_iso_metadata_segment(max_content_boost)
     gain_map_jpeg = _inject_after_soi(raw_gm_jpeg, iso_full_segment)
 

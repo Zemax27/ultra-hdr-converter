@@ -28,12 +28,18 @@ try:
 except ImportError:
     _RICH_AVAILABLE = False
 
-from ultra_hdr_converter.core.converter import ConversionResult, convert_jpeg_to_ultrahdr
+from ultra_hdr_converter.core.converter import ConversionResult, convert_to_ultrahdr
+from ultra_hdr_converter.core.formats import (
+    SUPPORTED_SUFFIXES,
+    ImageFormat,
+    is_supported_path,
+    output_format_for_input,
+)
 from ultra_hdr_converter.core.gain_map import GainMapConfig
 from ultra_hdr_converter.errors import AlreadyUltraHDRError
 
-JPEG_SUFFIXES = {".jpg", ".jpeg"}
-DEFAULT_OUTPUT_SUFFIX = "_ultrahdr.jpg"
+DEFAULT_OUTPUT_STEM_SUFFIX = "_ultrahdr"
+SUPPORTED_SUFFIX_LIST = ", ".join(sorted(SUPPORTED_SUFFIXES))
 
 
 @dataclass(frozen=True)
@@ -48,26 +54,26 @@ def _build_parser() -> argparse.ArgumentParser:
     """Build the CLI argument parser."""
     parser = argparse.ArgumentParser(
         prog="uhdr-convert",
-        description="Convert SDR JPEG files to Ultra HDR JPEG.",
+        description=f"Convert SDR images to gain map encoded Ultra HDR images ({SUPPORTED_SUFFIX_LIST}).",
     )
     parser.add_argument(
-        "input_jpeg",
+        "input_image",
         nargs="?",
         type=Path,
-        help="Input SDR JPEG file for single-file mode.",
+        help="Input SDR image for single-file mode.",
     )
     parser.add_argument(
-        "output_jpeg",
+        "output_image",
         nargs="?",
         type=Path,
-        help="Output Ultra HDR JPEG file for single-file mode.",
+        help="Output Ultra HDR image for single-file mode.",
     )
     parser.add_argument(
         "--batch-inputs",
         nargs="+",
         type=Path,
         default=None,
-        help="One or more SDR JPEG files or directories for batch mode.",
+        help="One or more SDR image files or directories for batch mode.",
     )
     parser.add_argument(
         "--out-dir",
@@ -100,10 +106,17 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Maximum HDR multiplier (in stops) for the brightest pixels.",
     )
     parser.add_argument(
-        "--jpeg-quality",
+        "--output-format",
+        type=str,
+        choices=sorted(fmt.value for fmt in ImageFormat),
+        default=None,
+        help="Output container. Defaults to the output file extension, or the input container.",
+    )
+    parser.add_argument(
+        "--quality",
         type=int,
         default=95,
-        help="JPEG quality level for the gain map (0-100).",
+        help="Encoder quality for the gain map, and for the base image when the container changes (0-100).",
     )
     parser.add_argument(
         "--guided-radius",
@@ -131,14 +144,18 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return _build_parser().parse_args(argv)
 
 
-def _is_jpeg_path(path: Path) -> bool:
-    """Return True when the path looks like a supported JPEG file."""
-    return path.suffix.lower() in JPEG_SUFFIXES
+def _requested_format(args: argparse.Namespace) -> ImageFormat | None:
+    """Return the explicitly requested output format, if any."""
+    return ImageFormat(args.output_format) if args.output_format is not None else None
 
 
-def _default_output_path(input_path: Path, out_dir: Path | None) -> Path:
-    """Build the default output path for one input file."""
-    filename = f"{input_path.stem}{DEFAULT_OUTPUT_SUFFIX}"
+def _default_output_path(input_path: Path, out_dir: Path | None, output_format: ImageFormat | None) -> Path:
+    """Build the default output path for one input file.
+
+    The output keeps the input's container unless a different one was requested.
+    """
+    image_format = output_format_for_input(input_path, output_format)
+    filename = f"{input_path.stem}{DEFAULT_OUTPUT_STEM_SUFFIX}{image_format.default_suffix}"
     if out_dir is not None:
         return out_dir / filename
     return input_path.with_name(filename)
@@ -154,27 +171,27 @@ def _ensure_single_input_exists(parser: argparse.ArgumentParser, input_path: Pat
     """Validate the single-file input path."""
     if not input_path.is_file():
         parser.error(f"input file not found: {input_path}")
-    if not _is_jpeg_path(input_path):
-        parser.error(f"single-file mode requires a .jpg or .jpeg input: {input_path}")
+    if not is_supported_path(input_path):
+        parser.error(f"single-file mode requires one of {SUPPORTED_SUFFIX_LIST}: {input_path}")
 
 
-def _collect_directory_jpegs(directory: Path) -> list[Path]:
-    """Collect top-level JPEG files from a directory in deterministic order."""
-    return sorted(path for path in directory.iterdir() if path.is_file() and _is_jpeg_path(path))
+def _collect_directory_images(directory: Path) -> list[Path]:
+    """Collect top-level supported images from a directory in deterministic order."""
+    return sorted(path for path in directory.iterdir() if path.is_file() and is_supported_path(path))
 
 
 def _collect_batch_input_paths(parser: argparse.ArgumentParser, raw_input: Path) -> list[Path]:
-    """Resolve one batch input path into concrete JPEG files."""
+    """Resolve one batch input path into concrete image files."""
     if raw_input.is_file():
-        if not _is_jpeg_path(raw_input):
-            parser.error(f"batch input must be a .jpg or .jpeg file: {raw_input}")
+        if not is_supported_path(raw_input):
+            parser.error(f"batch input must be one of {SUPPORTED_SUFFIX_LIST}: {raw_input}")
         return [raw_input]
 
     if raw_input.is_dir():
-        directory_jpegs = _collect_directory_jpegs(raw_input)
-        if not directory_jpegs:
-            parser.error(f"directory contains no .jpg or .jpeg files: {raw_input}")
-        return directory_jpegs
+        directory_images = _collect_directory_images(raw_input)
+        if not directory_images:
+            parser.error(f"directory contains no supported images ({SUPPORTED_SUFFIX_LIST}): {raw_input}")
+        return directory_images
 
     parser.error(f"batch input not found: {raw_input}")
     raise AssertionError("unreachable")
@@ -182,27 +199,27 @@ def _collect_batch_input_paths(parser: argparse.ArgumentParser, raw_input: Path)
 
 def _build_single_job(parser: argparse.ArgumentParser, args: argparse.Namespace) -> list[ConversionJob]:
     """Resolve single-file mode into one conversion job."""
-    input_path = args.input_jpeg
+    input_path = args.input_image
     if input_path is None:
-        parser.error("single-file mode requires an input JPEG")
+        parser.error("single-file mode requires an input image")
     if args.batch_inputs is not None:
         parser.error("use either positional single-file arguments or --batch-inputs, not both")
 
     _ensure_single_input_exists(parser, input_path)
 
-    if args.output_jpeg is not None and args.out_dir is not None:
+    if args.output_image is not None and args.out_dir is not None:
         parser.error("single-file mode cannot combine an explicit output file with --out-dir")
 
-    output_path = args.output_jpeg or _default_output_path(input_path, args.out_dir)
+    output_path = args.output_image or _default_output_path(input_path, args.out_dir, _requested_format(args))
     return [ConversionJob(input_path=input_path, output_path=output_path)]
 
 
 def _build_batch_jobs(parser: argparse.ArgumentParser, args: argparse.Namespace) -> list[ConversionJob]:
-    """Resolve batch mode into one job per discovered input JPEG."""
+    """Resolve batch mode into one job per discovered input image."""
     raw_inputs = args.batch_inputs
     if raw_inputs is None:
         parser.error("batch mode requires at least one value for --batch-inputs")
-    if args.input_jpeg is not None or args.output_jpeg is not None:
+    if args.input_image is not None or args.output_image is not None:
         parser.error("batch mode cannot be combined with positional single-file arguments")
 
     out_dir = args.out_dir
@@ -219,10 +236,11 @@ def _build_batch_jobs(parser: argparse.ArgumentParser, args: argparse.Namespace)
                 collected_inputs.append(input_path)
                 seen_inputs.add(resolved)
 
+    requested_format = _requested_format(args)
     jobs = [
         ConversionJob(
             input_path=input_path,
-            output_path=_default_output_path(input_path, out_dir),
+            output_path=_default_output_path(input_path, out_dir, requested_format),
         )
         for input_path in collected_inputs
     ]
@@ -243,7 +261,7 @@ def _build_jobs(parser: argparse.ArgumentParser, args: argparse.Namespace) -> li
 
     if args.batch_inputs is not None:
         return _build_batch_jobs(parser, args)
-    if args.input_jpeg is not None:
+    if args.input_image is not None:
         return _build_single_job(parser, args)
     parser.error("provide either positional single-file arguments or --batch-inputs")
     raise AssertionError("unreachable")
@@ -284,8 +302,9 @@ def _run_jobs(
     jobs: Sequence[ConversionJob],
     gain_map_path: Path | None,
     gain_map_config: GainMapConfig,
-    jpeg_quality: int,
+    quality: int,
     external_boost: float,
+    output_format: ImageFormat | None = None,
 ) -> tuple[list[ConversionResult], list[tuple[ConversionJob, Exception]], list[tuple[ConversionJob, Exception]]]:
     """Execute conversion jobs with Rich progress reporting."""
     successes: list[ConversionResult] = []
@@ -314,14 +333,15 @@ def _run_jobs(
             progress_callback = _make_progress_callback(progress, file_task, job.input_path.name)
 
             try:
-                result = convert_jpeg_to_ultrahdr(
-                    input_jpeg=job.input_path,
-                    output_jpeg=job.output_path,
+                result = convert_to_ultrahdr(
+                    input_path=job.input_path,
+                    output_path=job.output_path,
                     gain_map_path=gain_map_path,
                     gain_map_config=gain_map_config,
                     progress_callback=progress_callback,
-                    jpeg_quality=jpeg_quality,
+                    quality=quality,
                     max_content_boost=external_boost if gain_map_path is not None else None,
+                    output_format=output_format,
                 )
                 return job, result, None
             except Exception as exc:
@@ -355,7 +375,7 @@ def _print_results(
     """Render a compact post-run summary."""
     if not is_batch_mode and len(successes) == 1 and not failures:
         result = successes[0]
-        console.print(f"Wrote Ultra HDR JPEG: {result.output_path}")
+        console.print(f"Wrote Ultra HDR {result.output_format.value.upper()}: {result.output_path}")
         console.print(f"Gain map source: {result.gain_map_source}")
         console.print(f"ICC profile found: {result.has_icc}")
         return
@@ -384,7 +404,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     jobs = _build_jobs(parser, args)
     gain_map_config = _build_gain_map_config(args)
     successes, failures, skipped = _run_jobs(
-        console, jobs, args.gain_map, gain_map_config, args.jpeg_quality, args.max_boost_factor
+        console,
+        jobs,
+        args.gain_map,
+        gain_map_config,
+        args.quality,
+        args.max_boost_factor,
+        _requested_format(args),
     )
 
     _print_results(console, successes, failures, skipped, is_batch_mode=args.batch_inputs is not None)

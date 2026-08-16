@@ -8,6 +8,32 @@ Direct runtime dependencies:
 - imagecodecs (BSD 3-Clause)
 - numpy (BSD 3-Clause)
 
+Libraries bundled inside the imagecodecs wheel and used by this project:
+- libjpeg-turbo (BSD 3-Clause / IJG / zlib) — JPEG encoding and decoding
+  https://github.com/libjpeg-turbo/libjpeg-turbo
+- Little CMS / lcms2 (MIT) — ICC colour management
+  https://github.com/mm2/Little-CMS
+- libavif (BSD 2-Clause) — AVIF encoding and decoding
+  https://github.com/AOMediaCodec/libavif
+- AOMedia AV1 Codec / libaom (BSD 2-Clause + Alliance for Open Media Patent
+  License 1.0) — AV1 bitstream coding used by AVIF
+  https://aomedia.googlesource.com/aom/
+- dav1d (BSD 2-Clause) — AV1 decoding used by AVIF
+  https://code.videolan.org/videolan/dav1d
+
+  These are redistributed as part of the imagecodecs binary wheel, not vendored
+  into this repository. If you ship standalone executables that bundle
+  imagecodecs, include their notices in your release assets.
+
+Specifications implemented (no code copied):
+- ISO/IEC 21496-1 — gain map metadata
+- ISO/IEC 23008-12:2024 (HEIF) — 'tmap' tone map derived image items
+- CIPA DC-007 — Multi-Picture Format (MPF) used by the JPEG container
+- Adobe Gain Map (hdrgm) XMP namespace
+  The AVIF gain map container written by this project was developed against the
+  publicly documented box layout and verified against libavif's reference
+  tooling; no libavif source code is included or derived from.
+
 Optional dependencies (--extra gui):
 - PySide6 (LGPL-2.1-or-later / Qt Commercial)
   https://pypi.org/project/PySide6/
