@@ -9,7 +9,7 @@ Convert standard photos into **gain map encoded Ultra HDR images** compliant wit
 | JPEG | MPF secondary image + Adobe XMP + ISO 21496-1 APP2 metadata |
 | AVIF | `tmap` tone map derived image item (ISO/IEC 23008-12:2024) + ISO 21496-1 metadata |
 
-When the output container matches the input, the compressed base image is copied **byte-for-byte** — converting a photo never re-compresses it.
+When the output container matches the input, the compressed base image is copied **byte-for-byte** — converting a photo never re-compresses it. 8-, 10- and 12-bit AVIF sources are all supported, and keep their bit depth.
 
 ## Requirements
 

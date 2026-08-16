@@ -29,11 +29,27 @@ Input and output containers are independent: all four combinations are supported
 1. Read image bytes and detect the container from its magic bytes.
 2. Check for existing gain map metadata (Ultra HDR/ISO 21496-1 segments for JPEG, a `tmap` item for AVIF). If present, skip processing by raising `AlreadyUltraHDRError`.
 3. Decode the SDR raster through the container's decoder.
-4. Extract the embedded `icc_profile` (JPEG APP2 chain, or the AVIF `colr`/`prof` item property).
-5. Build CMS source and linear destination profiles with `imagecodecs.cms_profile`.
-6. Convert to linear light with `imagecodecs.cms_transform` (default `float32`).
+4. Probe the sample bit depth from the container (JPEG SOF precision byte, AVIF `av1C` sequence header) and expand the samples to their dtype's full range — see [Sample bit depth](#sample-bit-depth).
+5. Extract the embedded `icc_profile` (JPEG APP2 chain, or the AVIF `colr`/`prof` item property).
+6. Build CMS source and linear destination profiles with `imagecodecs.cms_profile`.
+7. Convert to linear light with `imagecodecs.cms_transform` (default `float32`).
 
 **Fallback behavior:** If no ICC exists, linearize with the sRGB assumption.
+
+#### Sample bit depth
+
+AVIF routinely stores 10- and 12-bit images. `imagecodecs.avif_decode` returns these in a `uint16` array, but the samples only occupy the low bits — a 10-bit white is 1023, not 65535. Colour management treats an integer array as spanning its dtype's whole range, so handing that array straight to `cms_transform` measures the image as roughly 64× too dark. Every pixel then falls below `highlight_threshold` and the generator emits an **all-zero gain map**: a structurally valid file that does nothing.
+
+The pipeline therefore reads the real depth from the container (`image_io.probe_bit_depth`) and rescales explicitly:
+
+| Step | Depth used |
+|------|-----------|
+| Luminance analysis | `color.to_full_range()` expands samples to the dtype's full range, preserving 10/12-bit precision |
+| AVIF output, same container | Coded payload reused verbatim — depth preserved exactly |
+| AVIF output, re-encoded | `bit_depth` forwarded to `avif_encode(bitspersample=…)` |
+| JPEG output | `color.rescale_sample_depth(…, 8)`; `encode_jpeg` rejects non-`uint8` input, since a `uint16` array silently yields a 12-bit JPEG most viewers cannot open |
+
+The gain map itself is always 8-bit single-channel regardless of base depth, which is what ISO 21496-1 readers expect.
 
 ### Phase B: Encode Ultra HDR with Gain Map
 
@@ -137,7 +153,7 @@ The package exports a minimal surface for programmatic use:
 - `linearize_from_icc()` — ICC-aware linearization for advanced users.
 - `AlreadyUltraHDRError` — raised when input is already fully gain map encoded.
 
-> **Breaking change in 0.2.0:** `convert_jpeg_to_ultrahdr()` is now `convert_to_ultrahdr()`, its `input_jpeg`/`output_jpeg`/`jpeg_quality` parameters are `input_path`/`output_path`/`quality`, and `has_mpf_secondary_image()` is now `has_embedded_gain_map()`.
+> **Breaking change in 0.4.0:** `convert_jpeg_to_ultrahdr()` is now `convert_to_ultrahdr()`, its `input_jpeg`/`output_jpeg`/`jpeg_quality` parameters are `input_path`/`output_path`/`quality`, and `has_mpf_secondary_image()` is now `has_embedded_gain_map()`.
 
 The pipeline also accepts an optional coarse-grained progress callback used by the CLI and GUI. Progress notifications are emitted only at major phase boundaries to avoid affecting the numeric hot path.
 
@@ -174,7 +190,7 @@ Nothing else changes: the CLI, GUI, gain map generator and colour pipeline are a
 
 | Data object | Format | Shape / Type |
 |-------------|--------|-------------|
-| SDR base input | uint8 ndarray | `(H, W, 3)`, or `(H, W, 4)` for AVIF with alpha |
+| SDR base input | uint8 / uint16 ndarray | `(H, W, 3)`, or `(H, W, 4)` for AVIF with alpha; `uint16` for 10/12-bit sources, paired with the probed bit depth |
 | Linearized SDR | float ndarray | `(H, W, C)` (typically `float32`) |
 | Luminance (CIE Y) | float ndarray | `(H, W)`; any alpha channel is dropped first |
 | Gain map | uint8 ndarray | `(H, W)` or `(H, W, 1|3)`; resolution independent of SDR base (typically half resolution when auto-generated) |

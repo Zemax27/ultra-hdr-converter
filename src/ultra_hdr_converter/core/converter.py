@@ -13,6 +13,7 @@ from ultra_hdr_converter.core.avif_encoder import (
     encode_ultrahdr_avif,
     extract_base_image,
 )
+from ultra_hdr_converter.core.color import SDR_BIT_DEPTH, rescale_sample_depth, to_full_range
 from ultra_hdr_converter.core.color_cms import extract_xyz_luminance
 from ultra_hdr_converter.core.formats import ImageFormat, detect_format, resolve_output_format
 from ultra_hdr_converter.core.gain_map import (
@@ -27,6 +28,7 @@ from ultra_hdr_converter.core.image_io import (
     extract_icc_profile,
     has_ultrahdr_metadata,
     load_gain_map,
+    probe_bit_depth,
     read_bytes,
     write_bytes,
 )
@@ -115,6 +117,7 @@ def _resolve_gain_map(
     input_bytes: bytes,
     input_format: ImageFormat,
     sdr_base: np.ndarray,
+    bit_depth: int,
     icc_profile: bytes | None,
     gain_map_path: Path | str | None,
     gain_map_config: GainMapConfig | None,
@@ -141,7 +144,10 @@ def _resolve_gain_map(
         return gain_map, GAIN_MAP_SOURCE_EMBEDDED
 
     _notify_progress(progress_callback, "Extracting luminance from SDR", 2)
-    sdr_half = _drop_alpha(sdr_base)[::2, ::2]
+    # Colour management reads an integer array as spanning its dtype's whole
+    # range, so deeper-than-8-bit samples must be expanded first; otherwise a
+    # 10-bit image is measured as almost black and the gain map comes out empty.
+    sdr_half = to_full_range(_drop_alpha(sdr_base)[::2, ::2], bit_depth)
     luminance = extract_xyz_luminance(sdr_half, icc_profile)
     _notify_progress(progress_callback, "Generating highlight-targeted gain map", 3)
     gain_map = validate_gain_map(generate_gain_map(luminance, config=gain_map_config))
@@ -153,6 +159,7 @@ def _encode_output(
     input_bytes: bytes,
     input_format: ImageFormat,
     sdr_base: np.ndarray,
+    bit_depth: int,
     icc_profile: bytes | None,
     gain_map: np.ndarray,
     quality: int,
@@ -161,8 +168,9 @@ def _encode_output(
     """Package the SDR base and gain map into the requested container.
 
     When the output container matches the input, the original compressed base
-    image is reused verbatim so no generation loss is introduced. Otherwise the
-    decoded raster is re-encoded into the target container.
+    image is reused verbatim so no generation loss is introduced — and a 10- or
+    12-bit AVIF keeps its full precision. Otherwise the decoded raster is
+    re-encoded into the target container.
 
     Raises:
         UnsupportedFormatError: If the requested output container is not supported.
@@ -172,7 +180,10 @@ def _encode_output(
             if input_format is ImageFormat.JPEG:
                 sdr_jpeg = input_bytes
             else:
-                sdr_jpeg = encode_jpeg(_drop_alpha(sdr_base), quality=quality, icc_profile=icc_profile)
+                # JPEG output is always 8-bit: a deeper array would produce a
+                # 12-bit JPEG that most viewers cannot open.
+                sdr_8bit = rescale_sample_depth(_drop_alpha(sdr_base), bit_depth, SDR_BIT_DEPTH)
+                sdr_jpeg = encode_jpeg(sdr_8bit, quality=quality, icc_profile=icc_profile)
             return encode_ultrahdr_jpeg(
                 sdr_jpeg=sdr_jpeg,
                 gain_map=gain_map,
@@ -184,7 +195,12 @@ def _encode_output(
             if input_format is ImageFormat.AVIF:
                 base_image, alpha_image = extract_base_image(input_bytes)
             else:
-                base_image = encode_coded_image(sdr_base, quality=quality, icc_profile=icc_profile)
+                base_image = encode_coded_image(
+                    sdr_base,
+                    quality=quality,
+                    icc_profile=icc_profile,
+                    bit_depth=bit_depth,
+                )
                 alpha_image = None
             return encode_ultrahdr_avif(
                 base_image=base_image,
@@ -262,12 +278,14 @@ def convert_to_ultrahdr(
         raise AlreadyUltraHDRError(f"File {input_path} is already an Ultra HDR image.")
 
     sdr_base = decode_image(input_bytes, input_format)
+    bit_depth = probe_bit_depth(input_bytes, input_format)
     icc_profile = extract_icc_profile(input_bytes, input_format)
 
     gain_map, gain_map_source = _resolve_gain_map(
         input_bytes=input_bytes,
         input_format=input_format,
         sdr_base=sdr_base,
+        bit_depth=bit_depth,
         icc_profile=icc_profile,
         gain_map_path=gain_map_path,
         gain_map_config=gain_map_config,
@@ -289,6 +307,7 @@ def convert_to_ultrahdr(
         input_bytes=input_bytes,
         input_format=input_format,
         sdr_base=sdr_base,
+        bit_depth=bit_depth,
         icc_profile=icc_profile,
         gain_map=gain_map,
         quality=quality,

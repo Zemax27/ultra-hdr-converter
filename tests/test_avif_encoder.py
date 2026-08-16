@@ -6,7 +6,6 @@ import pytest
 from ultra_hdr_converter.core import avif_io
 from ultra_hdr_converter.core.avif_encoder import (
     SRGB_CICP,
-    Av1Config,
     CodedImage,
     build_auxc,
     build_ispe,
@@ -14,8 +13,9 @@ from ultra_hdr_converter.core.avif_encoder import (
     build_pixi,
     encode_coded_image,
     encode_ultrahdr_avif,
-    parse_av1c,
+    miaf_brand,
 )
+from ultra_hdr_converter.core.avif_io import Av1Config
 from ultra_hdr_converter.core.iso21496 import GainMapMetadata
 
 IMAGE_HEIGHT = 32
@@ -75,37 +75,7 @@ def test_build_auxc_carries_the_alpha_urn() -> None:
     assert b"auxiliary:alpha" in box
 
 
-# ---- av1C decoding -----------------------------------------------------------
-
-
-def _av1c(flags_byte: int) -> bytes:
-    return struct.pack(">I", 12) + b"av1C" + bytes([0x81, 0x00, flags_byte, 0x00])
-
-
-@pytest.mark.parametrize(
-    ("flags", "expected_depth"),
-    [(0x00, DEPTH_8), (0x40, DEPTH_10), (0x60, DEPTH_12)],
-)
-def test_parse_av1c_reads_bit_depth(flags: int, expected_depth: int) -> None:
-    assert parse_av1c(_av1c(flags)).depth == expected_depth
-
-
-def test_parse_av1c_detects_monochrome() -> None:
-    config = parse_av1c(_av1c(0x1C))
-
-    assert config.is_monochrome is True
-    assert config.channel_count == 1
-
-
-def test_parse_av1c_defaults_when_box_is_missing() -> None:
-    config = parse_av1c(None)
-
-    assert config.depth == DEPTH_8
-    assert config.is_monochrome is False
-
-
-def test_parse_av1c_defaults_when_box_is_truncated() -> None:
-    assert parse_av1c(b"\x00\x00\x00\x09av1C\x81").depth == DEPTH_8
+# ---- MIAF brand selection ----------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -113,12 +83,15 @@ def test_parse_av1c_defaults_when_box_is_truncated() -> None:
     [
         (Av1Config(DEPTH_8, False, True, True), b"MA1B"),
         (Av1Config(DEPTH_8, False, False, False), b"MA1A"),
+        (Av1Config(DEPTH_10, False, True, True), b"MA1B"),
+        (Av1Config(DEPTH_10, False, False, False), b"MA1A"),
         (Av1Config(DEPTH_8, True, True, True), None),
         (Av1Config(DEPTH_12, False, False, False), None),
     ],
 )
-def test_av1_config_brand_selection(config: Av1Config, expected_brand: bytes | None) -> None:
-    assert config.brand == expected_brand
+def test_miaf_brand_selection(config: Av1Config, expected_brand: bytes | None) -> None:
+    """MIAF profiles cover 8/10-bit 4:2:0 and 4:4:4 only."""
+    assert miaf_brand(config) == expected_brand
 
 
 # ---- Container composition ---------------------------------------------------

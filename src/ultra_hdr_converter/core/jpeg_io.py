@@ -17,6 +17,10 @@ START_OF_SCAN_MARKER = 0xDA
 END_OF_IMAGE_MARKER = 0xD9
 APP1_MARKER = 0xE1
 APP2_MARKER = 0xE2
+DEFAULT_BIT_DEPTH = 8
+# Start Of Frame markers (0xC0-0xCF) excluding DHT, JPG and DAC, which share
+# the range but are not frame headers.
+SOF_MARKERS = frozenset(set(range(0xC0, 0xD0)) - {0xC4, 0xC8, 0xCC})
 MP_ENTRY_TAG = 0xB002
 MP_NUMBER_OF_IMAGES_TAG = 0xB001
 MP_ENTRY_SIZE = 16
@@ -82,6 +86,24 @@ def _build_icc_segments(icc_profile: bytes) -> bytes:
     return segments
 
 
+def get_bit_depth(jpeg_bytes: bytes) -> int:
+    """Return the sample precision declared in the JPEG frame header.
+
+    Baseline JPEG is 8-bit, but the format also allows 12-bit and 16-bit
+    precision, which is signalled by the first byte of the SOF segment.
+
+    Args:
+        jpeg_bytes: Complete JPEG file bytes.
+
+    Returns:
+        Bits per sample, defaulting to 8 when no frame header is found.
+    """
+    for marker, payload in _iter_jpeg_segments(jpeg_bytes):
+        if marker in SOF_MARKERS and payload:
+            return int(payload[0])
+    return DEFAULT_BIT_DEPTH
+
+
 def encode_jpeg(image: np.ndarray, quality: int = 95, icc_profile: bytes | None = None) -> bytes:
     """Encode a raster image as a baseline JPEG, optionally embedding an ICC profile.
 
@@ -98,8 +120,15 @@ def encode_jpeg(image: np.ndarray, quality: int = 95, icc_profile: bytes | None 
         Encoded JPEG bytes.
 
     Raises:
-        JpegStructureError: If encoding fails or the ICC profile cannot be embedded.
+        JpegStructureError: If the array is not 8-bit, if encoding fails, or if
+            the ICC profile cannot be embedded.
     """
+    if np.asarray(image).dtype != np.uint8:
+        # A uint16 array would produce a 12-bit JPEG that most viewers reject.
+        raise JpegStructureError(
+            f"JPEG encoding requires an 8-bit array, got dtype {np.asarray(image).dtype}; "
+            "rescale the samples to 8 bits first."
+        )
     try:
         encoded = bytes(imagecodecs.jpeg_encode(np.ascontiguousarray(image), level=quality))
     except Exception as exc:

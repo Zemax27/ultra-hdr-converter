@@ -27,14 +27,18 @@ import numpy as np
 
 from ultra_hdr_converter.core.avif_io import (
     BOX_HEADER_SIZE,
+    DEPTH_8,
+    DEPTH_10,
     ITEM_TYPE_AV01,
     ITEM_TYPE_TMAP,
     REF_TYPE_AUXL,
     REF_TYPE_DIMG,
+    Av1Config,
     CodedImage,
     build_coded_image,
     find_alpha_item,
     get_primary_item,
+    parse_av1c,
     parse_meta,
 )
 from ultra_hdr_converter.core.iso21496 import GainMapMetadata
@@ -74,18 +78,9 @@ _INFE_HIDDEN_FLAG = 0x1
 _IPMA_ESSENTIAL_MASK = 0x80
 _MAX_DEDUPED_PROPERTIES = 127  # one-byte ipma property indices
 
-# ---- av1C sequence header fields ---------------------------------------------
-
-_AV1C_PAYLOAD_OFFSET = BOX_HEADER_SIZE
-_AV1C_FLAGS_BYTE = 2
-_AV1C_HIGH_BITDEPTH_BIT = 0x40
-_AV1C_TWELVE_BIT_BIT = 0x20
-_AV1C_MONOCHROME_BIT = 0x10
-_AV1C_SUBSAMPLING_X_BIT = 0x08
-_AV1C_SUBSAMPLING_Y_BIT = 0x04
-_DEPTH_8 = 8
-_DEPTH_10 = 10
-_DEPTH_12 = 12
+# Gain maps are single-channel 8-bit images regardless of the base image depth,
+# which is what the ISO 21496-1 ecosystem expects.
+GAIN_MAP_BIT_DEPTH = DEPTH_8
 
 # ---- Colour information (CICP, ITU-T H.273) ----------------------------------
 
@@ -96,6 +91,11 @@ _CICP_FULL_RANGE_FLAG = 0x80
 
 # Default sRGB tagging applied to base images encoded from raster input.
 SRGB_CICP = (_CICP_PRIMARIES_BT709, _CICP_TRANSFER_SRGB, _CICP_MATRIX_BT601)
+
+# CICP code 2 means "unspecified" in ITU-T H.273; used for gain map images,
+# which carry ratios rather than colour.
+_CICP_UNSPECIFIED = 2
+_UNSPECIFIED_CICP = (_CICP_UNSPECIFIED, _CICP_UNSPECIFIED, _CICP_UNSPECIFIED)
 
 # ``avif_encode`` maps ``level`` to a 0-100 quality scale, matching the JPEG path.
 DEFAULT_QUALITY = 95
@@ -145,60 +145,23 @@ def build_auxc(aux_type: bytes = _ALPHA_AUX_URN) -> bytes:
     return _full_box(b"auxC", 0, 0, aux_type)
 
 
-@dataclass(frozen=True)
-class Av1Config:
-    """Sequence-header fields decoded from an ``av1C`` property box."""
-
-    depth: int
-    is_monochrome: bool
-    subsampling_x: bool
-    subsampling_y: bool
-
-    @property
-    def channel_count(self) -> int:
-        """Number of coded channels (1 for monochrome, otherwise 3)."""
-        return 1 if self.is_monochrome else COLOR_NDIM
-
-    @property
-    def brand(self) -> bytes | None:
-        """MIAF profile brand implied by this configuration, if any."""
-        if self.is_monochrome or self.depth not in (_DEPTH_8, _DEPTH_10):
-            return None
-        if self.subsampling_x and self.subsampling_y:
-            return _BRAND_MA1B
-        if not self.subsampling_x and not self.subsampling_y:
-            return _BRAND_MA1A
-        return None
-
-
-def parse_av1c(av1c_box: bytes | None) -> Av1Config:
-    """Decode the AV1 sequence-header fields carried in an ``av1C`` box.
+def miaf_brand(config: Av1Config) -> bytes | None:
+    """Return the MIAF profile brand implied by a codec configuration.
 
     Args:
-        av1c_box: Complete ``av1C`` property box, or ``None``.
+        config: Sequence-header fields of the base image.
 
     Returns:
-        The decoded configuration, defaulting to 8-bit 4:4:4 colour when the
-        box is missing or truncated.
+        ``MA1B`` for 8/10-bit 4:2:0, ``MA1A`` for 8/10-bit 4:4:4, otherwise
+        ``None`` — monochrome, 12-bit and 4:2:2 images match no MIAF profile.
     """
-    flags_offset = _AV1C_PAYLOAD_OFFSET + _AV1C_FLAGS_BYTE
-    if av1c_box is None or len(av1c_box) <= flags_offset:
-        return Av1Config(depth=_DEPTH_8, is_monochrome=False, subsampling_x=False, subsampling_y=False)
-
-    flags = av1c_box[flags_offset]
-    if flags & _AV1C_TWELVE_BIT_BIT:
-        depth = _DEPTH_12
-    elif flags & _AV1C_HIGH_BITDEPTH_BIT:
-        depth = _DEPTH_10
-    else:
-        depth = _DEPTH_8
-
-    return Av1Config(
-        depth=depth,
-        is_monochrome=bool(flags & _AV1C_MONOCHROME_BIT),
-        subsampling_x=bool(flags & _AV1C_SUBSAMPLING_X_BIT),
-        subsampling_y=bool(flags & _AV1C_SUBSAMPLING_Y_BIT),
-    )
+    if config.is_monochrome or config.depth not in (DEPTH_8, DEPTH_10):
+        return None
+    if config.subsampling_x and config.subsampling_y:
+        return _BRAND_MA1B
+    if not config.subsampling_x and not config.subsampling_y:
+        return _BRAND_MA1A
+    return None
 
 
 # ---- Item model --------------------------------------------------------------
@@ -422,6 +385,7 @@ def encode_coded_image(
     quality: int = DEFAULT_QUALITY,
     icc_profile: bytes | None = None,
     cicp: tuple[int, int, int] = SRGB_CICP,
+    bit_depth: int = DEPTH_8,
 ) -> CodedImage:
     """Encode a raster image to AVIF and lift the coded item back out.
 
@@ -430,10 +394,12 @@ def encode_coded_image(
     the muxer can place into a multi-item container.
 
     Args:
-        image: Pixel array of shape (H, W) or (H, W, C), dtype uint8.
+        image: Pixel array of shape (H, W) or (H, W, C). ``uint8`` for 8-bit
+            samples, ``uint16`` for deeper ones.
         quality: Encoder quality level (0-100).
         icc_profile: Optional ICC profile to attach to the coded image.
         cicp: (primaries, transfer, matrix) CICP codes used to tag the image.
+        bit_depth: Bits per sample to encode, e.g. 10 for a 10-bit image.
 
     Returns:
         The coded image with its descriptive properties.
@@ -447,6 +413,7 @@ def encode_coded_image(
             imagecodecs.avif_encode(
                 np.ascontiguousarray(image),
                 level=quality,
+                bitspersample=bit_depth,
                 primaries=primaries,
                 transfer=transfer,
                 matrix=matrix,
@@ -490,7 +457,7 @@ def build_single_item_avif(image: CodedImage) -> bytes:
         properties=_image_properties(image, include_icc=True),
     )
     brands = [_BRAND_AVIF, _BRAND_MIF1, _BRAND_MIAF]
-    brand = parse_av1c(image.av1c).brand
+    brand = miaf_brand(parse_av1c(image.av1c))
     if brand is not None:
         brands.append(brand)
     return _write_container([item], primary_item_id=_ITEM_ID_BASE, brands=brands, altr_ids=[])
@@ -558,8 +525,14 @@ def encode_ultrahdr_avif(
         gain = gain[..., 0]
 
     # The gain map is a single-channel image with no meaningful colour space of
-    # its own, so it is tagged as unspecified rather than sRGB.
-    coded_gain_map = encode_coded_image(gain, quality=quality, cicp=(2, 2, 2))
+    # its own, so it is tagged as unspecified rather than sRGB.  It stays 8-bit
+    # even when the base image is deeper, as ISO 21496-1 readers expect.
+    coded_gain_map = encode_coded_image(
+        gain,
+        quality=quality,
+        cicp=_UNSPECIFIED_CICP,
+        bit_depth=GAIN_MAP_BIT_DEPTH,
+    )
 
     metadata = GainMapMetadata(max_content_boost=max_content_boost)
 
@@ -605,7 +578,7 @@ def encode_ultrahdr_avif(
         )
 
     brands = [_BRAND_AVIF, _BRAND_MIF1, _BRAND_MIAF]
-    brand = parse_av1c(base_image.av1c).brand
+    brand = miaf_brand(parse_av1c(base_image.av1c))
     if brand is not None:
         brands.append(brand)
     brands.append(_BRAND_TMAP)

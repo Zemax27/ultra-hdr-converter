@@ -11,6 +11,80 @@ GRAYSCALE_NDIM = 2
 COLOR_NDIM = 3
 SINGLE_CHANNEL = 1
 
+# Bit depth of a conventional SDR raster, and of the widest sample this
+# pipeline handles.
+SDR_BIT_DEPTH = 8
+MAX_BIT_DEPTH = 16
+
+
+def max_sample_value(bit_depth: int) -> int:
+    """Return the largest sample value representable at a given bit depth.
+
+    Args:
+        bit_depth: Bits per sample (for example 8, 10 or 12).
+
+    Returns:
+        The maximum sample value, e.g. 1023 for 10-bit.
+
+    Raises:
+        ColorTransformError: If the bit depth is outside the supported range.
+    """
+    if not 1 <= bit_depth <= MAX_BIT_DEPTH:
+        raise ColorTransformError(f"Unsupported sample bit depth {bit_depth}; expected 1-{MAX_BIT_DEPTH}.")
+    return (1 << bit_depth) - 1
+
+
+def rescale_sample_depth(image: np.ndarray, source_bit_depth: int, target_bit_depth: int) -> np.ndarray:
+    """Rescale integer samples from one bit depth to another.
+
+    Full-scale white maps to full-scale white, so a 10-bit value of 1023
+    becomes 255 at 8 bits rather than being truncated.
+
+    Args:
+        image: Integer pixel array of any shape.
+        source_bit_depth: Bits per sample actually used by the input.
+        target_bit_depth: Bits per sample wanted in the output.
+
+    Returns:
+        Rescaled array, dtype ``uint8`` for targets up to 8 bits and ``uint16``
+        above. Returned unchanged when the depths already match.
+
+    Raises:
+        ColorTransformError: If the array is not integer typed or a bit depth
+            is out of range.
+    """
+    array = np.asarray(image)
+    if not np.issubdtype(array.dtype, np.integer):
+        raise ColorTransformError(f"Sample rescaling requires an integer array, got dtype {array.dtype}.")
+
+    source_max = max_sample_value(source_bit_depth)
+    target_max = max_sample_value(target_bit_depth)
+    target_dtype = np.uint8 if target_bit_depth <= SDR_BIT_DEPTH else np.uint16
+
+    if source_bit_depth == target_bit_depth:
+        return np.asarray(array.astype(target_dtype, copy=False))
+
+    scaled = array.astype(np.float32) * (target_max / source_max)
+    return np.asarray(np.clip(np.rint(scaled, out=scaled), 0, target_max).astype(target_dtype))
+
+
+def to_full_range(image: np.ndarray, bit_depth: int) -> np.ndarray:
+    """Expand samples so they span the full range of their own dtype.
+
+    Colour management treats an integer array as covering its dtype's whole
+    range, so 10-bit samples stored in ``uint16`` must be stretched to 0-65535
+    before any CMS transform — otherwise the image is read as almost black.
+
+    Args:
+        image: Integer pixel array of any shape.
+        bit_depth: Bits per sample actually used by the input.
+
+    Returns:
+        The array rescaled to its dtype's full range.
+    """
+    dtype_bit_depth = np.iinfo(np.asarray(image).dtype).bits
+    return rescale_sample_depth(image, bit_depth, dtype_bit_depth)
+
 
 def extract_y_channel(xyz_array: np.ndarray, outdtype: DTypeLike = np.float32) -> np.ndarray:
     """Extract the Y (luminance) channel from a CIE XYZ array.

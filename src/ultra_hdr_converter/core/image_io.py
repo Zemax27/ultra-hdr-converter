@@ -65,6 +65,33 @@ def decode_image(data: bytes, image_format: ImageFormat | None = None) -> np.nda
             raise UnsupportedFormatError(f"Cannot decode {unsupported.value} images.")
 
 
+def probe_bit_depth(data: bytes, image_format: ImageFormat | None = None) -> int:
+    """Return the bits per sample the image actually uses.
+
+    Decoders hand back a ``uint16`` array for anything deeper than 8 bits, but
+    the samples only occupy the low bits — a 10-bit image peaks at 1023, not
+    65535. Colour management and re-encoding both need the real depth, so it is
+    read from the container rather than inferred from the array dtype.
+
+    Args:
+        data: Complete image file bytes.
+        image_format: Container format; detected from the bytes when omitted.
+
+    Returns:
+        Bits per sample, e.g. 8, 10 or 12.
+
+    Raises:
+        UnsupportedFormatError: If the container format is not supported.
+    """
+    match image_format or detect_format(data):
+        case ImageFormat.JPEG:
+            return jpeg_io.get_bit_depth(data)
+        case ImageFormat.AVIF:
+            return avif_io.get_bit_depth(data)
+        case unsupported:
+            raise UnsupportedFormatError(f"Cannot read the sample depth of {unsupported.value} images.")
+
+
 def extract_icc_profile(data: bytes, image_format: ImageFormat | None = None) -> bytes | None:
     """Extract the embedded ICC profile, if the file carries one.
 

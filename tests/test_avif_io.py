@@ -1,3 +1,5 @@
+import struct
+
 import imagecodecs
 import numpy as np
 import pytest
@@ -101,6 +103,56 @@ def test_read_item_payload_rejects_out_of_range_extent(plain_avif: bytes) -> Non
 
     with pytest.raises(AvifStructureError, match="exceeds"):
         avif_io.read_item_payload(plain_avif, meta, broken)
+
+
+# ---- av1C decoding and bit depth ---------------------------------------------
+
+
+def _av1c(flags_byte: int) -> bytes:
+    """Build a minimal av1C property box with the given sequence-header flags."""
+    return struct.pack(">I", 12) + b"av1C" + bytes([0x81, 0x00, flags_byte, 0x00])
+
+
+@pytest.mark.parametrize(
+    ("flags", "expected_depth"),
+    [(0x00, avif_io.DEPTH_8), (0x40, avif_io.DEPTH_10), (0x60, avif_io.DEPTH_12)],
+)
+def test_parse_av1c_reads_bit_depth(flags: int, expected_depth: int) -> None:
+    assert avif_io.parse_av1c(_av1c(flags)).depth == expected_depth
+
+
+def test_parse_av1c_detects_monochrome() -> None:
+    config = avif_io.parse_av1c(_av1c(0x1C))
+
+    assert config.is_monochrome is True
+    assert config.channel_count == 1
+
+
+def test_parse_av1c_defaults_when_box_is_missing() -> None:
+    config = avif_io.parse_av1c(None)
+
+    assert config.depth == avif_io.DEPTH_8
+    assert config.is_monochrome is False
+
+
+def test_parse_av1c_defaults_when_box_is_truncated() -> None:
+    assert avif_io.parse_av1c(b"\x00\x00\x00\x09av1C\x81").depth == avif_io.DEPTH_8
+
+
+def test_get_bit_depth_reports_eight_for_standard_avif(plain_avif: bytes) -> None:
+    assert avif_io.get_bit_depth(plain_avif) == avif_io.DEPTH_8
+
+
+def test_get_bit_depth_reports_ten_for_high_bit_depth_avif(sdr_image: np.ndarray) -> None:
+    """A 10-bit AVIF must be reported as 10-bit, not as its uint16 storage width."""
+    image10 = (sdr_image.astype(np.uint16) * 1023) // 255
+    encoded = bytes(imagecodecs.avif_encode(image10, level=80, bitspersample=10))
+
+    assert avif_io.get_bit_depth(encoded) == avif_io.DEPTH_10
+
+
+def test_get_bit_depth_defaults_for_malformed_input() -> None:
+    assert avif_io.get_bit_depth(b"garbage") == avif_io.DEPTH_8
 
 
 # ---- Gain map detection ------------------------------------------------------

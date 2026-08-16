@@ -83,6 +83,20 @@ _ISPE_PAYLOAD_SIZE = 8
 _TMAP_DIMG_ENTRY_COUNT = 2
 _COLOUR_TYPE_SIZE = 4
 
+# ---- av1C sequence header fields (AV1 spec, 'Codec Configuration Box') -------
+
+AV1C_PAYLOAD_OFFSET = BOX_HEADER_SIZE
+_AV1C_FLAGS_BYTE = 2
+_AV1C_HIGH_BITDEPTH_BIT = 0x40
+_AV1C_TWELVE_BIT_BIT = 0x20
+_AV1C_MONOCHROME_BIT = 0x10
+_AV1C_SUBSAMPLING_X_BIT = 0x08
+_AV1C_SUBSAMPLING_Y_BIT = 0x04
+DEPTH_8 = 8
+DEPTH_10 = 10
+DEPTH_12 = 12
+COLOR_CHANNELS = 3
+
 # Boxes whose children are parsed recursively, mapped to the number of extra
 # header bytes to skip before the first child (FullBox version+flags).
 _CONTAINER_BOXES: dict[bytes, int] = {
@@ -158,6 +172,51 @@ class AvifMeta:
         if 1 <= one_based_index <= len(self.property_boxes):
             return self.property_boxes[one_based_index - 1]
         return None
+
+
+@dataclass(frozen=True)
+class Av1Config:
+    """Sequence-header fields decoded from an ``av1C`` property box."""
+
+    depth: int
+    is_monochrome: bool
+    subsampling_x: bool
+    subsampling_y: bool
+
+    @property
+    def channel_count(self) -> int:
+        """Number of coded channels (1 for monochrome, otherwise 3)."""
+        return 1 if self.is_monochrome else COLOR_CHANNELS
+
+
+def parse_av1c(av1c_box: bytes | None) -> Av1Config:
+    """Decode the AV1 sequence-header fields carried in an ``av1C`` box.
+
+    Args:
+        av1c_box: Complete ``av1C`` property box, or ``None``.
+
+    Returns:
+        The decoded configuration, defaulting to 8-bit 4:4:4 colour when the
+        box is missing or truncated.
+    """
+    flags_offset = AV1C_PAYLOAD_OFFSET + _AV1C_FLAGS_BYTE
+    if av1c_box is None or len(av1c_box) <= flags_offset:
+        return Av1Config(depth=DEPTH_8, is_monochrome=False, subsampling_x=False, subsampling_y=False)
+
+    flags = av1c_box[flags_offset]
+    if flags & _AV1C_TWELVE_BIT_BIT:
+        depth = DEPTH_12
+    elif flags & _AV1C_HIGH_BITDEPTH_BIT:
+        depth = DEPTH_10
+    else:
+        depth = DEPTH_8
+
+    return Av1Config(
+        depth=depth,
+        is_monochrome=bool(flags & _AV1C_MONOCHROME_BIT),
+        subsampling_x=bool(flags & _AV1C_SUBSAMPLING_X_BIT),
+        subsampling_y=bool(flags & _AV1C_SUBSAMPLING_Y_BIT),
+    )
 
 
 @dataclass(frozen=True)
@@ -669,6 +728,27 @@ def extract_icc_profile(avif_bytes: bytes) -> bytes | None:
     except AvifStructureError:
         return None
     return icc
+
+
+def get_bit_depth(avif_bytes: bytes) -> int:
+    """Return the bits per sample of the primary image item.
+
+    AVIF commonly stores 10- or 12-bit images, which ``avif_decode`` hands back
+    in a ``uint16`` array whose values only occupy the low bits. Callers need
+    the real depth to interpret those samples.
+
+    Args:
+        avif_bytes: Complete AVIF file bytes.
+
+    Returns:
+        Bits per sample, defaulting to 8 when the file cannot be parsed.
+    """
+    try:
+        meta = parse_meta(avif_bytes)
+        primary = get_primary_item(meta)
+    except AvifStructureError:
+        return DEPTH_8
+    return parse_av1c(meta.property_bytes(primary, BOX_AV1C)).depth
 
 
 def has_gain_map_metadata(avif_bytes: bytes) -> bool:
