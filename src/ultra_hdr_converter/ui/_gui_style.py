@@ -196,6 +196,28 @@ QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{
     background-color: {C_CARD};
     border: none;
 }}
+QComboBox {{
+    background-color: {C_ELEVATED};
+    color: {C_TEXT};
+    border: 1px solid {C_BORDER};
+    border-radius: 5px;
+    padding: 5px 9px;
+    min-width: 118px;
+    font-size: 12px;
+}}
+QComboBox:hover {{ border-color: {C_ACCENT_ALT}; }}
+QComboBox:focus {{ border-color: {C_ACCENT}; }}
+QComboBox:disabled {{ color: {C_TEXT_DIM}; background-color: {C_SURFACE}; }}
+QComboBox::drop-down {{ border: none; width: 18px; }}
+QComboBox QAbstractItemView {{
+    background-color: {C_ELEVATED};
+    color: {C_TEXT};
+    border: 1px solid {C_BORDER};
+    border-radius: 5px;
+    outline: none;
+    selection-background-color: {C_ACCENT};
+    selection-color: #101214;
+}}
 QSlider::groove:horizontal {{
     height: 4px;
     background-color: #303338;

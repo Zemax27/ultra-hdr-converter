@@ -54,7 +54,7 @@ This project follows the guidelines defined in [.github/copilot-instructions.md]
 ### Testing Philosophy
 
 - **Unit tests** mock external I/O (filesystem, imagecodecs library)
-- **Integration tests** use real JPEG files when possible
+- **Integration tests** use real image files (JPEG and AVIF) when possible
 - **Happy path + edge cases + failure cases** must be covered
 - **Update tests** whenever you change behavior
 
@@ -91,10 +91,12 @@ This generates clean changelogs and helps reviewers understand your intent.
 
 ## Architecture
 
-The codebase follows a two-phase pipeline:
+The codebase follows a two-phase pipeline, shared by every supported container:
 
-- **Phase A — Decode & Linearize:** Read JPEG, decode raster, extract ICC profile, convert to linear light via CMS.
-- **Phase B — Encode Ultra HDR:** Generate or load gain map, then compose MPF container with XMP and ISO 21496-1 metadata.
+- **Phase A — Decode & Linearize:** Read the input image, detect its container, decode the raster, extract the ICC profile, convert to linear light via CMS.
+- **Phase B — Encode Ultra HDR:** Generate or load a gain map, then package it with ISO 21496-1 metadata — an MPF container plus XMP for JPEG, or a `tmap` derived image item for AVIF.
+
+Container-specific code is isolated in `core/<format>_io.py` and `core/<format>_encoder.py`; everything else is format-agnostic. Adding a format means adding those two modules plus an `ImageFormat` entry in `core/formats.py`.
 
 Detailed design documentation is in [docs/architecture.md](docs/architecture.md):
 

@@ -10,7 +10,13 @@ from importlib import resources
 from pathlib import Path
 from threading import Lock
 
-from ultra_hdr_converter.core.converter import convert_jpeg_to_ultrahdr
+from ultra_hdr_converter.core.converter import convert_to_ultrahdr
+from ultra_hdr_converter.core.formats import (
+    SUPPORTED_SUFFIXES,
+    ImageFormat,
+    is_supported_path,
+    output_format_for_input,
+)
 from ultra_hdr_converter.core.gain_map import GainMapConfig
 from ultra_hdr_converter.errors import AlreadyUltraHDRError
 from ultra_hdr_converter.ui._gui_style import C_TEXT_DIM, STATUS_COLORS, STYLESHEET
@@ -18,12 +24,26 @@ from ultra_hdr_converter.ui._gui_style import C_TEXT_DIM, STATUS_COLORS, STYLESH
 # Minimum seconds between progress signal emissions to avoid flooding the UI event loop.
 _PROGRESS_THROTTLE_SECONDS: float = 0.05
 
+_OUTPUT_STEM_SUFFIX = "_ultrahdr"
+
+# Output format choices offered in the toolbar; ``None`` keeps the input container.
+_FORMAT_CHOICES: tuple[tuple[str, ImageFormat | None], ...] = (
+    ("Same as input", None),
+    ("JPEG", ImageFormat.JPEG),
+    ("AVIF", ImageFormat.AVIF),
+)
+
+_FILE_DIALOG_FILTER = "Images ({});;All files (*)".format(
+    " ".join(f"*{suffix}" for suffix in sorted(SUPPORTED_SUFFIXES))
+)
+
 try:
     from PySide6.QtCore import Qt, QThread, Signal, Slot  # type: ignore[import-not-found]
     from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QIcon  # type: ignore[import-not-found]
     from PySide6.QtWidgets import (  # type: ignore[import-not-found]
         QAbstractItemView,
         QApplication,
+        QComboBox,
         QDoubleSpinBox,
         QFileDialog,
         QGridLayout,
@@ -69,7 +89,7 @@ if HAS_PYSIDE:
     ProgressCallbackType = Callable[[str, int, int], None]
 
     class WorkerThread(QThread):  # type: ignore[misc]
-        """Background thread that converts a batch of JPEG files to Ultra HDR.
+        """Background thread that converts a batch of images to Ultra HDR.
 
         Signals:
             progress: Emits (status_message, 0.0–1.0 fraction) during conversion.
@@ -88,11 +108,13 @@ if HAS_PYSIDE:
             input_files: list[Path],
             output_dir: Path | None,
             gain_map_config: GainMapConfig,
+            output_format: ImageFormat | None = None,
         ) -> None:
             super().__init__()
             self.input_files = input_files
             self.output_dir = output_dir
             self.gain_map_config = gain_map_config
+            self.output_format = output_format
             self.is_cancelled = False
 
         def cancel(self) -> None:
@@ -112,7 +134,8 @@ if HAS_PYSIDE:
             if self.is_cancelled:
                 return index, input_path, False, RuntimeError("Cancelled")
 
-            output_name = f"{input_path.stem}_ultrahdr.jpg"
+            image_format = output_format_for_input(input_path, self.output_format)
+            output_name = f"{input_path.stem}{_OUTPUT_STEM_SUFFIX}{image_format.default_suffix}"
             output_path = (
                 self.output_dir / output_name if self.output_dir is not None else input_path.with_name(output_name)
             )
@@ -133,11 +156,12 @@ if HAS_PYSIDE:
                             last_emit_time[0] = time.monotonic()
 
             try:
-                convert_jpeg_to_ultrahdr(
-                    input_jpeg=input_path,
-                    output_jpeg=output_path,
+                convert_to_ultrahdr(
+                    input_path=input_path,
+                    output_path=output_path,
                     gain_map_config=gain_map_config,
                     progress_callback=progress_cb,
+                    output_format=self.output_format,
                 )
                 return index, input_path, True, None
             except AlreadyUltraHDRError as exc:
@@ -287,7 +311,7 @@ if HAS_PYSIDE:
             title.setObjectName("app_title")
             brand_layout.addWidget(title)
 
-            subtitle = QLabel("Create JPEGs with gain maps for HDR displays")
+            subtitle = QLabel("Create JPEG and AVIF images with gain maps for HDR displays")
             subtitle.setObjectName("app_subtitle")
             brand_layout.addWidget(subtitle)
             row.addWidget(brand)
@@ -305,7 +329,7 @@ if HAS_PYSIDE:
 
             self.btn_add = QPushButton("Add photos")
             self.btn_add.setObjectName("btn_add")
-            self.btn_add.setToolTip("Add JPEG images to the conversion queue")
+            self.btn_add.setToolTip("Add JPEG or AVIF images to the conversion queue")
             self.btn_add.clicked.connect(self._add_photos)
 
             self.btn_remove = QPushButton("Remove")
@@ -320,6 +344,8 @@ if HAS_PYSIDE:
             bar.addWidget(self.btn_remove)
             bar.addWidget(self.btn_clear)
             bar.addStretch()
+
+            bar.addWidget(self._build_format_selector())
 
             output_group = QWidget()
             output_group.setObjectName("output_group")
@@ -344,6 +370,29 @@ if HAS_PYSIDE:
             bar.addWidget(self.btn_output)
 
             return toolbar
+
+        def _build_format_selector(self) -> QWidget:
+            """Build the output container selector shown in the toolbar."""
+            group = QWidget()
+            group.setObjectName("format_group")
+            layout = QVBoxLayout(group)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(0)
+
+            caption = QLabel("OUTPUT FORMAT")
+            caption.setObjectName("output_caption")
+            layout.addWidget(caption)
+
+            self.combo_format = QComboBox()
+            self.combo_format.setObjectName("combo_format")
+            self.combo_format.setToolTip(
+                "Container to write. 'Same as input' keeps each photo's original container, "
+                "which preserves the compressed image without re-encoding it."
+            )
+            for label, image_format in _FORMAT_CHOICES:
+                self.combo_format.addItem(label, image_format)
+            layout.addWidget(self.combo_format)
+            return group
 
         def _build_tuning_section(self) -> QWidget:
             section = QWidget()
@@ -513,7 +562,7 @@ if HAS_PYSIDE:
             self._drop_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
             drop_layout.addWidget(self._drop_hint)
 
-            drop_detail = QLabel("JPEG files only, or use Add photos")
+            drop_detail = QLabel("JPEG or AVIF files, or use Add photos")
             drop_detail.setObjectName("drop_detail")
             drop_detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
             drop_layout.addWidget(drop_detail)
@@ -624,17 +673,17 @@ if HAS_PYSIDE:
         def dropEvent(self, event: QDropEvent) -> None:  # noqa: N802
             for url in event.mimeData().urls():
                 path = Path(url.toLocalFile())
-                if path.suffix.lower() in {".jpg", ".jpeg"}:
+                if is_supported_path(path):
                     self._add_file_to_table(path)
             event.acceptProposedAction()
 
         # ── Queue management ───────────────────────────────────────────────────
 
         def _add_file_to_table(self, path: Path) -> None:
-            """Add a single JPEG path to the queue, ignoring duplicates.
+            """Add a single image path to the queue, ignoring duplicates.
 
             Args:
-                path: Absolute path to the JPEG file to enqueue.
+                path: Absolute path to the image file to enqueue.
             """
             resolved = path.resolve()
             if resolved in self._queued_paths:
@@ -661,7 +710,7 @@ if HAS_PYSIDE:
             self.table.setItem(row, 2, item)
 
         def _add_photos(self) -> None:
-            files, _ = QFileDialog.getOpenFileNames(self, "Select JPEG files", "", "JPEG (*.jpg *.jpeg)")
+            files, _ = QFileDialog.getOpenFileNames(self, "Select images", "", _FILE_DIALOG_FILTER)
             for f in files:
                 self._add_file_to_table(Path(f))
 
@@ -690,7 +739,7 @@ if HAS_PYSIDE:
 
         def _start_conversion(self) -> None:
             if self.table.rowCount() == 0:
-                QMessageBox.warning(self, "Empty Queue", "Please add JPEG files to convert.")
+                QMessageBox.warning(self, "Empty Queue", "Please add JPEG or AVIF files to convert.")
                 return
 
             input_files: list[Path] = []
@@ -705,6 +754,7 @@ if HAS_PYSIDE:
             self.btn_add.setEnabled(False)
             self.btn_remove.setEnabled(False)
             self.btn_clear.setEnabled(False)
+            self.combo_format.setEnabled(False)
             self.tuning_panel.setEnabled(False)
             self.btn_tuning.setEnabled(False)
             self.progress_bar.setValue(0)
@@ -718,7 +768,12 @@ if HAS_PYSIDE:
                 max_boost_factor=self.max_boost_factor_spinbox.value(),
                 bloom_weight=self.bloom_weight_spinbox.value(),
             )
-            self.worker = WorkerThread(input_files, self.output_dir, gain_map_config)
+            self.worker = WorkerThread(
+                input_files,
+                self.output_dir,
+                gain_map_config,
+                output_format=self.combo_format.currentData(),
+            )
             self.worker.progress.connect(self._on_progress)
             self.worker.log.connect(self._on_log)
             self.worker.status_update.connect(self._on_status_update)
@@ -758,6 +813,7 @@ if HAS_PYSIDE:
             self.btn_add.setEnabled(True)
             self.btn_remove.setEnabled(True)
             self.btn_clear.setEnabled(True)
+            self.combo_format.setEnabled(True)
             self.tuning_panel.setEnabled(True)
             self.btn_tuning.setEnabled(True)
 

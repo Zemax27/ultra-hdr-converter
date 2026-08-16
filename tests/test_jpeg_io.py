@@ -7,8 +7,8 @@ from ultra_hdr_converter.core.jpeg_io import (
     decode_jpeg,
     extract_icc_profile,
     extract_mpf_gain_map,
+    has_gain_map_metadata,
     has_mpf_secondary_image,
-    has_ultrahdr_metadata,
 )
 from ultra_hdr_converter.errors import JpegStructureError
 
@@ -95,62 +95,62 @@ def test_extract_icc_profile_returns_none_for_incomplete_icc_chunks(monkeypatch:
 # ── Ultra HDR metadata detection ──────────────────────────────────────────────
 
 
-def test_has_ultrahdr_metadata_returns_true_for_iso_21496() -> None:
+def test_has_gain_map_metadata_returns_true_for_iso_21496() -> None:
     payload = b"urn:iso:std:iso:ts:21496:-1\x00\x00\x00"
     jpeg_bytes = b"\xff\xd8" + _make_app2_segment(payload) + b"\xff\xd9"
-    assert has_ultrahdr_metadata(jpeg_bytes) is True
+    assert has_gain_map_metadata(jpeg_bytes) is True
 
 
-def test_has_ultrahdr_metadata_returns_true_for_adobe_xmp() -> None:
+def test_has_gain_map_metadata_returns_true_for_adobe_xmp() -> None:
     payload = b"http://ns.adobe.com/xap/1.0/\x00<x:xmpmeta>hdrgm:Version=</x:xmpmeta>"
     length = len(payload) + 2
     app1 = b"\xff\xe1" + length.to_bytes(2, "big") + payload
     jpeg_bytes = b"\xff\xd8" + app1 + b"\xff\xd9"
-    assert has_ultrahdr_metadata(jpeg_bytes) is True
+    assert has_gain_map_metadata(jpeg_bytes) is True
 
 
-def test_has_ultrahdr_metadata_returns_true_for_hdrcapacitymin_xmp() -> None:
+def test_has_gain_map_metadata_returns_true_for_hdrcapacitymin_xmp() -> None:
     """XMP with HDRCapacityMin but without 'hdrgm:' prefix should still be detected."""
     payload = b"http://ns.adobe.com/xap/1.0/\x00<x:xmpmeta>HDRCapacityMin=0.0</x:xmpmeta>"
     length = len(payload) + 2
     app1 = b"\xff\xe1" + length.to_bytes(2, "big") + payload
     jpeg_bytes = b"\xff\xd8" + app1 + b"\xff\xd9"
-    assert has_ultrahdr_metadata(jpeg_bytes) is True
+    assert has_gain_map_metadata(jpeg_bytes) is True
 
 
-def test_has_ultrahdr_metadata_returns_true_for_gainmapmin_xmp() -> None:
+def test_has_gain_map_metadata_returns_true_for_gainmapmin_xmp() -> None:
     """XMP with GainMapMin but without 'hdrgm:' prefix should still be detected."""
     payload = b"http://ns.adobe.com/xap/1.0/\x00<x:xmpmeta>GainMapMin=0.0</x:xmpmeta>"
     length = len(payload) + 2
     app1 = b"\xff\xe1" + length.to_bytes(2, "big") + payload
     jpeg_bytes = b"\xff\xd8" + app1 + b"\xff\xd9"
-    assert has_ultrahdr_metadata(jpeg_bytes) is True
+    assert has_gain_map_metadata(jpeg_bytes) is True
 
 
-def test_has_ultrahdr_metadata_returns_false_for_standard_jpeg() -> None:
+def test_has_gain_map_metadata_returns_false_for_standard_jpeg() -> None:
     jpeg_bytes = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\xff\xd9"
-    assert has_ultrahdr_metadata(jpeg_bytes) is False
+    assert has_gain_map_metadata(jpeg_bytes) is False
 
 
-def test_has_ultrahdr_metadata_returns_false_for_xmp_without_hdrgm() -> None:
+def test_has_gain_map_metadata_returns_false_for_xmp_without_hdrgm() -> None:
     """XMP segment without any gain map attributes should not be detected as Ultra HDR."""
     payload = b"http://ns.adobe.com/xap/1.0/\x00<x:xmpmeta>some other metadata</x:xmpmeta>"
     length = len(payload) + 2
     app1 = b"\xff\xe1" + length.to_bytes(2, "big") + payload
     jpeg_bytes = b"\xff\xd8" + app1 + b"\xff\xd9"
-    assert has_ultrahdr_metadata(jpeg_bytes) is False
+    assert has_gain_map_metadata(jpeg_bytes) is False
 
 
-def test_has_ultrahdr_metadata_returns_false_for_empty_input() -> None:
-    assert has_ultrahdr_metadata(b"") is False
+def test_has_gain_map_metadata_returns_false_for_empty_input() -> None:
+    assert has_gain_map_metadata(b"") is False
 
 
-def test_has_ultrahdr_metadata_returns_false_for_non_jpeg() -> None:
-    assert has_ultrahdr_metadata(b"\x89PNG\r\n\x1a\n") is False
+def test_has_gain_map_metadata_returns_false_for_non_jpeg() -> None:
+    assert has_gain_map_metadata(b"\x89PNG\r\n\x1a\n") is False
 
 
-def test_has_ultrahdr_metadata_returns_false_for_truncated_jpeg() -> None:
-    assert has_ultrahdr_metadata(b"\xff\xd8\xff") is False
+def test_has_gain_map_metadata_returns_false_for_truncated_jpeg() -> None:
+    assert has_gain_map_metadata(b"\xff\xd8\xff") is False
 
 
 # ── MPF gain map extraction ──────────────────────────────────────────────────

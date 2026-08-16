@@ -1,6 +1,15 @@
 # Ultra HDR Converter
 
-Convert standard JPEG photos into **Ultra HDR JPEG** files compliant with **ISO 21496-1**. These images display expanded brightness and vivid highlights on HDR-capable screens (iPhone 12 or newer, recent Android, HDR monitors) while remaining fully compatible with SDR devices. No HDR camera needed — the tool automatically synthesizes a gain map from a single SDR JPEG.
+Convert standard photos into **gain map encoded Ultra HDR images** compliant with **ISO 21496-1**. These images display expanded brightness and vivid highlights on HDR-capable screens (iPhone 12 or newer, recent Android, HDR monitors) while remaining fully compatible with SDR devices. No HDR camera needed — the tool automatically synthesizes a gain map from a single SDR image.
+
+**Supported formats:** JPEG and AVIF, for both input and output, in any combination.
+
+| Container | Gain map carriage |
+|-----------|-------------------|
+| JPEG | MPF secondary image + Adobe XMP + ISO 21496-1 APP2 metadata |
+| AVIF | `tmap` tone map derived image item (ISO/IEC 23008-12:2024) + ISO 21496-1 metadata |
+
+When the output container matches the input, the compressed base image is copied **byte-for-byte** — converting a photo never re-compresses it.
 
 ## Requirements
 
@@ -19,7 +28,9 @@ uv sync --extra cli         # + CLI tool (uhdr-convert)
 uv sync --extra cli --extra gui  # + CLI and desktop GUI (uhdr-gui)
 ```
 
-> **Note:** `imagecodecs` must be built with the `cms` and `ultrahdr` extensions enabled. The default PyPI wheel includes both.
+> **Note:** `imagecodecs` must be built with the `cms`, `jpeg` and `avif` extensions enabled. The default PyPI wheel includes all of them.
+>
+> AVIF gain map containers are assembled by this project rather than by `imagecodecs`, whose AVIF binding exposes no gain map API. Only plain AVIF encoding and decoding are taken from `imagecodecs`; the ISO 21496-1 `tmap` structure is written here, following ISO/IEC 23008-12:2024 and verified against libavif's reference tooling.
 
 ## Usage
 
@@ -27,13 +38,32 @@ uv sync --extra cli --extra gui  # + CLI and desktop GUI (uhdr-gui)
 
 ```powershell
 uv run uhdr-convert input.jpg output_ultrahdr.jpg
+uv run uhdr-convert input.avif output_ultrahdr.avif
 ```
 
-The output file is a valid JPEG readable everywhere. On HDR displays it lights up; on SDR screens it looks identical to the original. If you omit the output path, the file is saved beside the input as `<name>_ultrahdr.jpg`:
+The output file remains readable everywhere. On HDR displays it lights up; on SDR screens it looks identical to the original. If you omit the output path, the file is saved beside the input as `<name>_ultrahdr` with the input's own extension:
 
 ```powershell
-uv run uhdr-convert input.jpg
+uv run uhdr-convert input.jpg     # -> input_ultrahdr.jpg
+uv run uhdr-convert input.avif    # -> input_ultrahdr.avif
 ```
+
+### Choose the output container
+
+The output container follows the output file extension:
+
+```powershell
+uv run uhdr-convert input.jpg output_ultrahdr.avif    # JPEG in, AVIF out
+uv run uhdr-convert input.avif output_ultrahdr.jpg    # AVIF in, JPEG out
+```
+
+Or force it explicitly, which also works in batch mode:
+
+```powershell
+uv run uhdr-convert input.jpg --output-format avif
+```
+
+> **Note:** Changing the container re-encodes the base image, because the compressed data has to be rebuilt for the new codec. Keeping the container copies the original compressed image untouched, so prefer that when you only want to add a gain map.
 
 ### Convert a whole folder
 
@@ -44,10 +74,10 @@ uv run uhdr-convert --batch-inputs photos\ --out-dir converted\
 You can also pass individual files in batch mode:
 
 ```powershell
-uv run uhdr-convert --batch-inputs photo1.jpg photo2.jpg photo3.jpg --out-dir converted\
+uv run uhdr-convert --batch-inputs photo1.jpg photo2.avif photo3.jpg --out-dir converted\
 ```
 
-Each output is saved as `<original_name>_ultrahdr.jpg` inside `--out-dir`. If `--out-dir` is omitted the converted files are written beside the originals.
+Each output is saved as `<original_name>_ultrahdr` inside `--out-dir`, keeping each file's own container unless `--output-format` says otherwise. If `--out-dir` is omitted the converted files are written beside the originals.
 
 ### Use an external or embedded gain map
 
@@ -57,9 +87,9 @@ If you have a pre-computed gain map (`.npy` or any image file) you can supply it
 uv run uhdr-convert input.jpg output_ultrahdr.jpg --gain-map gain_map.png
 ```
 
-Alternatively, if your input file already contains an embedded gain map in Multi-Picture Format (MPF) but lacks the required ISO 21496-1 or Adobe XMP metadata, the pipeline will automatically extract and use that embedded map to encode the final Ultra HDR image.
+Alternatively, if your JPEG already contains an embedded gain map in Multi-Picture Format (MPF) but lacks the required ISO 21496-1 or Adobe XMP metadata, the pipeline will automatically extract and use that embedded map to encode the final Ultra HDR image.
 
-> **Note**: If you run `uhdr-convert` on a file that is *already* fully encoded as Ultra HDR or ISO 21496-1, the tool will inform you and gracefully skip the file.
+> **Note**: If you run `uhdr-convert` on a file that is *already* gain map encoded — an Ultra HDR JPEG, or an AVIF carrying a `tmap` item — the tool will inform you and gracefully skip the file.
 
 ### Desktop GUI
 
@@ -70,7 +100,7 @@ uv sync --extra cli --extra gui
 uv run uhdr-gui
 ```
 
-The GUI runs conversions on a background thread so the interface stays responsive, and shows live progress for each pipeline phase. Expand **HDR Tuning** to adjust highlight threshold, expansion gamma, maximum boost, and bloom weight for the whole batch. Each control includes an effect hint, and the documented defaults preserve the standard conversion behavior. These controls affect synthesized gain maps; an existing embedded gain map is reused without regeneration.
+The GUI runs conversions on a background thread so the interface stays responsive, and shows live progress for each pipeline phase. Drop in JPEG or AVIF files and pick an **Output format** — *Same as input* keeps each photo's container (and its compressed image) untouched. Expand **HDR Tuning** to adjust highlight threshold, expansion gamma, maximum boost, and bloom weight for the whole batch. Each control includes an effect hint, and the documented defaults preserve the standard conversion behavior. These controls affect synthesized gain maps; an existing embedded gain map is reused without regeneration.
 
 For a polished desktop experience, download the standalone executable from the [Releases](https://github.com/Zemax27/ultra-hdr-converter/releases) page.
 
@@ -80,15 +110,16 @@ For a polished desktop experience, download the standalone executable from the [
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `input_jpeg` | — | Input SDR JPEG (single-file mode) |
-| `output_jpeg` | `<input>_ultrahdr.jpg` | Output Ultra HDR JPEG (single-file mode) |
-| `--batch-inputs FILE/DIR …` | — | One or more JPEG files or directories (batch mode) |
+| `input_image` | — | Input SDR image, `.jpg`/`.jpeg`/`.avif` (single-file mode) |
+| `output_image` | `<input>_ultrahdr<ext>` | Output Ultra HDR image (single-file mode) |
+| `--batch-inputs FILE/DIR …` | — | One or more image files or directories (batch mode) |
 | `--out-dir DIR` | beside input | Output folder for batch mode (or single-file when omitted) |
+| `--output-format {jpeg,avif}` | output extension, else input container | Container to write. |
 | `--gain-map FILE` | auto-generated | External gain map file (`.npy` or image). Skips gain map synthesis. |
 | `--highlight-threshold` | `0.5` | Luminance level (0–1) at which HDR boost begins. Lower = more pixels boosted. |
 | `--expansion-gamma` | `2.2` | Curve exponent for highlight stretching. Higher = more aggressive expansion. |
 | `--max-boost-factor` | `3.0` | Maximum HDR brightness multiplier for the brightest pixels. |
-| `--jpeg-quality` | `95` | JPEG quality level for the gain map (0-100). |
+| `--quality` | `95` | Encoder quality for the gain map, and for the base image when the container changes (0-100). |
 | `--guided-radius` | `20` | Edge-aware smoothing radius. Larger = smoother gain map, slower. |
 | `--guided-eps` | `0.001` | Edge sensitivity for guided filter. Smaller = sharper edges preserved. |
 | `--bloom-weight` | `0.15` | Bloom halo intensity around bright areas. Set to `0` to disable. |
@@ -109,9 +140,9 @@ See the `examples/` directory for programmatic usage and custom workflows:
 ## Troubleshooting
 
 **"imagecodecs cms extension is unavailable"**
-The installed `imagecodecs` package lacks CMS/UltraHDR support. This typically happens when a source build was attempted without required C libraries, or an incomplete wheel was installed.
+The installed `imagecodecs` package lacks CMS support. This typically happens when a source build was attempted without required C libraries, or an incomplete wheel was installed. The same cause produces AVIF failures when the `avif` extension is missing.
 
-Fix by reinstalling the official PyPI wheel (includes both extensions):
+Fix by reinstalling the official PyPI wheel (which includes every extension this project needs):
 
 ```bash
 # Using uv (recommended)
@@ -132,6 +163,12 @@ sudo apt install build-essential python3-dev cython3 python3-pip \
 
 **"File … is already an Ultra HDR image"**
 This is expected behavior when re-processing converted files. The tool skips these to avoid redundant work. Use a different output filename if you want to force a new conversion.
+
+**"Unsupported ISOBMFF brand … only AVIF files are supported"**
+The file is an HEIF-family image (for example `.heic` from an iPhone) rather than AVIF. Convert it to JPEG or AVIF first.
+
+**"Tiled (grid) AVIF images are not supported"**
+The AVIF stores its image as a grid of tiles, which cannot be re-packaged without re-encoding. Re-save the file as a single-tile AVIF, or convert it to JPEG output instead.
 
 **GUI won't start / missing PySide6**
 Ensure you installed with GUI extras: `uv sync --extra cli --extra gui`. If running a standalone executable, download the latest release from the [Releases](https://github.com/your-org/ultra-hdr-converter/releases) page.

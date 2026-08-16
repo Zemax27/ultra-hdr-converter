@@ -9,6 +9,7 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtWidgets import QApplication  # type: ignore[import-not-found]  # noqa: E402
 
+from ultra_hdr_converter.core.formats import ImageFormat  # noqa: E402
 from ultra_hdr_converter.core.gain_map import GainMapConfig  # noqa: E402
 from ultra_hdr_converter.ui import gui  # noqa: E402
 
@@ -115,3 +116,76 @@ def test_start_conversion_forwards_selected_gain_map_config(
 
     window._on_finished(1, 0)
     assert window.tuning_panel.isEnabled()
+
+
+def test_queue_accepts_avif_and_rejects_unsupported_suffixes(
+    window: gui.UltraHdrGui,
+    tmp_path: Path,
+) -> None:
+    """The queue is driven by the shared format registry, not a hardcoded JPEG list."""
+    for name in ("photo.jpg", "photo.avif"):
+        path = tmp_path / name
+        path.write_bytes(b"data")
+        window._add_file_to_table(path)
+
+    expected_queued = 2
+    assert window.table.rowCount() == expected_queued
+    assert gui.is_supported_path(tmp_path / "photo.avif") is True
+    assert gui.is_supported_path(tmp_path / "photo.png") is False
+
+
+def test_format_selector_offers_every_container(window: gui.UltraHdrGui) -> None:
+    labels = [window.combo_format.itemText(i) for i in range(window.combo_format.count())]
+    values = [window.combo_format.itemData(i) for i in range(window.combo_format.count())]
+
+    assert labels[0] == "Same as input"
+    assert values[0] is None
+    assert set(values[1:]) == set(ImageFormat)
+
+
+def test_start_conversion_forwards_selected_output_format(
+    window: gui.UltraHdrGui,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    input_path = tmp_path / "photo.jpg"
+    input_path.write_bytes(b"jpeg")
+    window._add_file_to_table(input_path)
+    window.combo_format.setCurrentIndex(window.combo_format.findData(ImageFormat.AVIF))
+
+    monkeypatch.setattr(gui.WorkerThread, "start", lambda self: None)
+    window._start_conversion()
+
+    assert window.worker is not None
+    assert window.worker.output_format is ImageFormat.AVIF
+    assert not window.combo_format.isEnabled()
+
+    window._on_finished(1, 0)
+    assert window.combo_format.isEnabled()
+
+
+@pytest.mark.parametrize(
+    ("input_name", "output_format", "expected_name"),
+    [
+        ("photo.jpg", None, "photo_ultrahdr.jpg"),
+        ("photo.avif", None, "photo_ultrahdr.avif"),
+        ("photo.jpg", ImageFormat.AVIF, "photo_ultrahdr.avif"),
+        ("photo.avif", ImageFormat.JPEG, "photo_ultrahdr.jpg"),
+    ],
+)
+def test_worker_output_name_follows_selected_container(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    input_name: str,
+    output_format: ImageFormat | None,
+    expected_name: str,
+) -> None:
+    """Output files take the resolved container's extension, not always .jpg."""
+    input_path = tmp_path / input_name
+    captured: list[Path] = []
+    monkeypatch.setattr(gui, "convert_to_ultrahdr", lambda **kwargs: captured.append(kwargs["output_path"]))
+
+    worker = gui.WorkerThread([input_path], tmp_path, GainMapConfig(), output_format)
+    worker._process_file(0, input_path, 1, [0.0], [0.0], gui.Lock(), GainMapConfig())
+
+    assert captured == [tmp_path / expected_name]
